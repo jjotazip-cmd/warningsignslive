@@ -19,6 +19,7 @@ function createWindow() {
     height: 900,
     minWidth: 900,
     minHeight: 620,
+    fullscreenable: true,
     backgroundColor: '#0a0a0a',
     title: 'Warning Signs',
     webPreferences: {
@@ -27,6 +28,14 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: true
     }
+  });
+  mainWindow.on('enter-full-screen', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send('desktop:fullscreen-changed', true);
+  });
+  mainWindow.on('leave-full-screen', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send('desktop:fullscreen-changed', false);
   });
   mainWindow.webContents.on('will-navigate', (event, targetUrl) => {
     try {
@@ -203,6 +212,12 @@ app.whenReady().then(() => {
     if (!isTrusted(event)) return false;
     stopAllAudioWorkers();
     return true;
+  });
+  ipcMain.handle('desktop:set-fullscreen', (event, enabled) => {
+    if (!isTrusted(event) || !mainWindow || mainWindow.isDestroyed()) return false;
+    const fullscreen = Boolean(enabled);
+    mainWindow.setFullScreen(fullscreen);
+    return fullscreen;
   });
   createWindow();
 });

@@ -4,6 +4,12 @@ contextBridge.exposeInMainWorld('warningSignsDesktop', {
   listAudioApps: () => ipcRenderer.invoke('desktop:list-audio-apps'),
   startAudioApps: (pids, includeMode = false) => ipcRenderer.invoke('desktop:start-audio-apps', pids, includeMode),
   stopAudioApps: () => ipcRenderer.invoke('desktop:stop-audio-apps'),
+  setFullscreen: enabled => ipcRenderer.invoke('desktop:set-fullscreen', Boolean(enabled)),
+  onFullscreenChange: callback => {
+    const handler = (_event, enabled) => callback(Boolean(enabled));
+    ipcRenderer.on('desktop:fullscreen-changed', handler);
+    return () => ipcRenderer.removeListener('desktop:fullscreen-changed', handler);
+  },
   onAudioData: callback => {
     const handler = (_event, message) => callback(message);
     ipcRenderer.on('desktop:audio-data', handler);
