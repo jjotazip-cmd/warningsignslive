@@ -235,6 +235,28 @@ button.stop:hover{background:#777777}
 }
 
 
+/* Palco central da sala, no estilo da prévia */
+.room-main{grid-template-rows:minmax(420px,calc(100vh - 290px)) auto auto;align-content:stretch}
+.broadcast-canvas{position:relative;display:grid;place-items:center;min-width:0;min-height:420px;overflow:hidden;background:#17181b;border:1px solid #34363b;border-radius:16px}
+.broadcast-idle{width:100%;height:100%;min-height:420px;display:grid;place-content:center;justify-items:center;gap:14px;padding:24px;text-align:center}
+.broadcast-monitor{width:56px;height:56px;display:grid;place-items:center;border-radius:15px;background:#292a2f;color:#f2f3f5;font-size:27px}
+.broadcast-idle h2{font-size:1.35rem}
+.broadcast-idle p{max-width:440px;color:#949ba4}
+.broadcast-idle #go{min-width:min(400px,90vw);min-height:56px;border-radius:16px;font-size:1.05rem}
+#broadcast-canvas>#pv{position:absolute;inset:0;z-index:1;width:100%;height:100%;max-height:none;object-fit:contain;border:0;border-radius:0}
+#broadcast-canvas>#stage{position:absolute;inset:0;z-index:2;display:grid;height:100%;min-height:0;margin:0;grid-template-rows:auto minmax(0,1fr);background:#111214;border:0;border-radius:0;box-shadow:none}
+#broadcast-canvas>#stage video{height:100%;min-height:0;max-height:none}
+.room-control-panel{align-content:start}
+.room-control-panel>.row:first-child{flex-wrap:nowrap}
+.room-control-panel>#msg{margin:0}
+.live-list{align-content:start}
+@media(max-width:720px){
+  .room-main{grid-template-rows:minmax(360px,62vh) auto auto}
+  .broadcast-canvas,.broadcast-idle{min-height:360px}
+  .room-control-panel>.row:first-child{flex-wrap:wrap}
+}
+
+
 /* A identidade fotográfica e manuscrita permanece na entrada e acompanha o app */
 .room-mode .hero{background:#232428!important;filter:none!important}
 .room-mode .hero h1{font:400 1.7rem/1.05 "Pinyon Script","Snell Roundhand","Brush Script MT",cursive;letter-spacing:.01em;text-shadow:0 0 12px rgba(255,255,255,.12)}
@@ -338,15 +360,24 @@ body.home-mode{background:#f3f3f3;color:#111}
       <div id="membros" aria-label="Participantes da sala"></div>
     </aside>
     <div class="room-main">
-      <section class="card" id="stage" style="display:none">
-        <div class="row" style="justify-content:space-between">
-          <div><h2 id="quem">Assistindo</h2><div id="wq" class="row" style="gap:6px;margin-top:6px"></div></div>
-          <span class="row"><button class="alt" id="som">Ativar som</button><button class="alt" id="full">Tela cheia</button><button class="alt" id="sair">Sair</button></span>
+      <section class="broadcast-canvas" aria-label="Área de transmissão">
+        <div class="broadcast-idle" id="broadcast-idle">
+          <span class="broadcast-monitor" aria-hidden="true">▣</span>
+          <h2 id="broadcast-empty-title">Ninguém está transmitindo ainda.</h2>
+          <p id="broadcast-empty-note">Compartilhe sua tela para começar a transmissão.</p>
+          <button id="go">Compartilhar tela</button>
         </div>
-        <video id="v" autoplay playsinline muted></video>
+        <video id="pv" autoplay muted playsinline style="display:none"></video>
+        <section class="card" id="stage" style="display:none">
+          <div class="row" style="justify-content:space-between">
+            <div><h2 id="quem">Assistindo</h2><div id="wq" class="row" style="gap:6px;margin-top:6px"></div></div>
+            <span class="row"><button class="alt" id="som">Ativar som</button><button class="alt" id="full">Tela cheia</button><button class="alt" id="sair">Sair</button></span>
+          </div>
+          <video id="v" autoplay playsinline muted></video>
+        </section>
       </section>
-      <section class="card">
-        <div class="row"><input id="nome" placeholder="Seu nome" maxlength="24" autocomplete="nickname"><button id="go">Transmitir minha tela</button><button id="stop" class="stop" style="display:none">Parar transmissão</button></div>
+      <section class="card room-control-panel">
+        <div class="row"><input id="nome" placeholder="Seu nome" maxlength="24" autocomplete="nickname"><button id="stop" class="stop" style="display:none">Parar transmissão</button></div>
         <div class="stream-settings" aria-label="Configurações da transmissão">
           <label for="quality">Resolução</label>
           <select id="quality" aria-label="Resolução da transmissão">
@@ -379,9 +410,8 @@ body.home-mode{background:#f3f3f3;color:#111}
         <p class="muted" id="quality-status" role="status">Padrão nativo da tela. Se a conexão ficar instável, reduza para 720p ou limite os FPS.</p>
         <p class="muted" id="msg">Conectando…</p>
         <button class="alt" id="retry-connect" type="button" style="display:none">Tentar reconectar</button>
-        <video id="pv" autoplay muted playsinline style="display:none"></video>
       </section>
-      <section class="card"><h2>Ao vivo agora</h2><div id="lista" class="tiles"></div></section>
+      <section class="card live-list"><h2>Ao vivo agora</h2><div id="lista" class="tiles"></div></section>
     </div>
     <aside class="card" id="side" aria-label="Chat da sala">
       <div class="side-section-title chat-title"><h2>Chat da sala</h2><span class="chat-live-dot" aria-hidden="true"></span></div>
@@ -519,7 +549,7 @@ async function stopDesktopAppAudio(){
 const rnd=n=>Array.from(crypto.getRandomValues(new Uint8Array(n)),b=>"abcdefghjkmnpqrstuvwxyz23456789"[b%31]).join('');
 const okId=s=>/^[a-z0-9]{3,12}$/.test(s||'');
 const msg=t=>$('#msg').textContent=t;
-const errT=e=>String(e&&(e.type||e.name||e.message)||e);
+const errT=e=>String(e&&(e.message||e.type||e.name)||e);
 try{$('#nome').value=localStorage.getItem('nome')||''}catch(e){}
 const nome=()=>{const n=$('#nome').value.trim()||'Amigo';try{localStorage.setItem('nome',n)}catch(e){}return n};
 const store={get(){try{return JSON.parse(localStorage.getItem('ws_groups')||'[]')}catch(e){return[]}},set(v){try{localStorage.setItem('ws_groups',JSON.stringify(v))}catch(e){}}};
@@ -688,7 +718,9 @@ async function share(){
   let appAudioStream=null;
   if(mode==='exclude'&&appPids.length){
     try{appAudioStream=await startDesktopAppAudio(appPids)}
-    catch(e){displayStream.getTracks().forEach(track=>track.stop());msg('Não foi possível capturar o áudio dos programas: '+errT(e));return}
+    catch(e){
+      $('#desktop-audio-status').textContent='A captura seletiva falhou: '+errT(e)+'. A tela continuará sem áudio para não enviar o som dos aplicativos marcados.';
+    }
   }
   if(mode==='none'||(mode==='exclude'&&!appAudioStream))myStream=new MediaStream(displayStream.getVideoTracks());
   else if(appAudioStream)myStream=new MediaStream([...displayStream.getVideoTracks(),...appAudioStream.getAudioTracks()]);
@@ -810,6 +842,9 @@ function renderAll(){
 
   const l=$('#lista');l.textContent='';
   const streams=all.filter(m=>m.sharing);
+  $('#broadcast-empty-title').textContent=streams.length?'Escolha uma transmissão para assistir.':'Ninguém está transmitindo ainda.';
+  $('#broadcast-empty-note').textContent=streams.length?'As transmissões disponíveis aparecem logo abaixo.':'Compartilhe sua tela para começar a transmissão.';
+  $('#broadcast-idle').style.display=sharing||watching?'none':'grid';
   if(!streams.length)l.append(mk('span','muted','Ninguém transmitindo ainda.'));
   streams.forEach(s=>{
     const w=watchersOf(s.id);
