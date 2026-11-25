@@ -10,12 +10,14 @@ GERAR O INSTALADOR PELO GITHUB
 5. Baixe o artefato warning-signs-windows-installer. Ele contém o instalador .exe.
 
 GERAÇÃO MANUAL NO WINDOWS
-1. Abra esta pasta no Windows.
+1. Abra a pasta desktop-app no Windows.
 2. Instale Node.js 22 e Visual Studio Build Tools com “Desenvolvimento para desktop com C++”.
 3. No terminal dentro desta pasta, execute npm install e depois npm run dist.
 4. O instalador aparecerá em desktop-app/dist/.
 
 O instalador é separado do site publicado no Netlify. A opção de seleção de áudio aparece somente dentro do app Windows. No site/PWA, o navegador continua oferecendo as opções normais de compartilhamento.
+
+O site estático do Netlify não precisa das dependências npm do Electron. Mantenha o package.json do instalador em desktop-app, não na raiz do repositório.
 
 Na sala, escolha “Áudio do sistema, exceto aplicativo marcado”, selecione um aplicativo e inicie a transmissão. O áudio do aplicativo escolhido fica fora da transmissão; o restante do áudio do sistema é compartilhado. Selecione um aplicativo por vez.
 
