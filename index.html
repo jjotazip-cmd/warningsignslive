@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="description" content="Crie salas, compartilhe sua tela e assista às transmissões com seus amigos.">
 <meta name="theme-color" content="#1e1f22">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Warning Signs — salas ao vivo</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pinyon+Script&display=swap">
@@ -28,6 +31,18 @@ main{max-width:960px;margin:0 auto;padding:8px 16px 40px;display:grid;gap:16px}
 input{flex:1;min-width:140px;font:inherit;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--tx)}
 button{font:inherit;font-weight:600;border:1px solid var(--tx);border-radius:10px;padding:12px 18px;cursor:pointer;color:var(--bg);background:var(--tx);min-height:44px}
 button.alt{background:transparent;color:var(--tx);border-color:var(--line)}
+.stream-settings{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap;margin-top:12px}
+.stream-settings label{font-size:.9rem;color:var(--mut)}
+.stream-settings select{font:inherit;color:var(--tx);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:9px 30px 9px 11px;min-height:42px;max-width:100%}
+.desktop-audio-control{display:none;border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:10px}
+.desktop-audio-title{font-weight:700;margin-bottom:8px}
+.desktop-audio-modes{display:flex;gap:8px 16px;flex-wrap:wrap;margin-bottom:10px}
+.desktop-audio-modes label,.desktop-audio-app{display:flex;align-items:center;gap:7px;color:var(--tx)}
+.desktop-audio-control input[type="radio"],.desktop-audio-control input[type="checkbox"]{flex:0 0 auto;min-width:0;width:18px;height:18px;margin:0;padding:0;border-radius:4px}
+.desktop-audio-apps{display:grid;gap:6px;max-height:180px;overflow:auto;margin:8px 0}
+.desktop-audio-app{padding:7px 9px;border:1px solid var(--line);border-radius:8px}
+#desktop-audio-status{margin:6px 0 0;font-size:.85rem}
+#quality-status{margin:8px 0 0;font-size:.85rem}
 button.stop{background:transparent;color:var(--tx);border-color:var(--tx)}
 h2{margin:0;font:italic 400 1.4rem var(--serif)}
 .item{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);border-left:4px solid var(--tx)}
@@ -282,6 +297,36 @@ body.home-mode{background:#f3f3f3;color:#111}
       </section>
       <section class="card">
         <div class="row"><input id="nome" placeholder="Seu nome" maxlength="24" autocomplete="nickname"><button id="go">Transmitir minha tela</button><button id="stop" class="stop" style="display:none">Parar transmissão</button></div>
+        <div class="stream-settings" aria-label="Configurações da transmissão">
+          <label for="quality">Resolução</label>
+          <select id="quality" aria-label="Resolução da transmissão">
+            <option value="native" selected>Nativa da tela</option>
+            <option value="1280">Reduzida · 720p mínimo</option>
+            <option value="1920">Alta · 1080p</option>
+          </select>
+          <label for="fps">FPS máximo</label>
+          <select id="fps" aria-label="FPS máximo da transmissão">
+            <option value="native" selected>Nativo</option>
+            <option value="15">15 FPS</option>
+            <option value="24">24 FPS</option>
+            <option value="30">30 FPS</option>
+            <option value="60">60 FPS</option>
+          </select>
+        </div>
+        <div class="desktop-audio-control" id="desktop-audio-control">
+          <div class="desktop-audio-title">Áudio da transmissão (app Windows)</div>
+          <div class="desktop-audio-modes">
+            <label><input type="radio" name="desktop-audio-mode" value="system" checked> Áudio do sistema</label>
+            <label><input type="radio" name="desktop-audio-mode" value="apps"> Aplicativos selecionados</label>
+            <label><input type="radio" name="desktop-audio-mode" value="none"> Sem áudio</label>
+          </div>
+          <div id="desktop-audio-app-picker" style="display:none">
+            <div class="row"><button class="alt" id="desktop-audio-refresh" type="button">Atualizar lista</button><span class="muted">Marque os programas que quer incluir.</span></div>
+            <div class="desktop-audio-apps" id="desktop-audio-apps"></div>
+          </div>
+          <p class="muted" id="desktop-audio-status" role="status"></p>
+        </div>
+        <p class="muted" id="quality-status" role="status">Padrão nativo da tela. Se a conexão ficar instável, reduza para 720p ou limite os FPS.</p>
         <p class="muted" id="msg">Conectando…</p>
         <button class="alt" id="retry-connect" type="button" style="display:none">Tentar reconectar</button>
         <video id="pv" autoplay muted playsinline style="display:none"></video>
@@ -309,6 +354,108 @@ body.home-mode{background:#f3f3f3;color:#111}
 const $=s=>document.querySelector(s);
 const showG=(s,on)=>$(s).style.display=on?'grid':'none';
 const canShare=!!(navigator.mediaDevices&&navigator.mediaDevices.getDisplayMedia);
+const desktopBridge=window.warningSignsDesktop||null;
+let desktopAudioSession=null;
+
+async function refreshDesktopAudioApps(){
+  if(!desktopBridge)return;
+  const box=$('#desktop-audio-control'),list=$('#desktop-audio-apps');
+  if(!box||!list)return;
+  box.style.display='block';
+  list.textContent='';
+  $('#desktop-audio-status').textContent='Buscando programas abertos…';
+  try{
+    const apps=await desktopBridge.listAudioApps();
+    if(!apps.length){$('#desktop-audio-status').textContent='Nenhuma janela de aplicativo encontrada. Abra o programa e atualize a lista.';return}
+    apps.forEach(app=>{
+      const label=mk('label','desktop-audio-app');
+      const check=document.createElement('input');check.type='checkbox';check.value=String(app.pid);check.dataset.appName=app.name;
+      check.addEventListener('change',()=>{
+        if(selectedDesktopAudioPids().length>6){check.checked=false;$('#desktop-audio-status').textContent='Marque no máximo seis programas.'}
+      });
+      const name=document.createElement('span');name.textContent=app.name;
+      label.append(check,name);list.append(label);
+    });
+    $('#desktop-audio-status').textContent='Você pode marcar vários programas. O áudio deles será misturado na transmissão.';
+  }catch(e){$('#desktop-audio-status').textContent='Não foi possível listar os programas: '+errT(e)}
+}
+
+function desktopAudioMode(){
+  return document.querySelector('input[name="desktop-audio-mode"]:checked')?.value||'system';
+}
+
+function selectedDesktopAudioPids(){
+  return [...document.querySelectorAll('#desktop-audio-apps input[type="checkbox"]:checked')].map(x=>Number(x.value));
+}
+
+async function startDesktopAppAudio(pids){
+  if(!desktopBridge)throw new Error('O seletor de áudio só está disponível no app Windows.');
+  const context=new AudioContext({sampleRate:48000});
+  const destination=context.createMediaStreamDestination();
+  const workletCode=[
+    'class WarningSignsPcmProcessor extends AudioWorkletProcessor {',
+    ' constructor(){ super(); this.queue=[]; this.pos=0; this.channels=2; this.rate=48000; this.port.onmessage=e=>{const x=e.data;this.channels=x.channels||2;this.rate=x.rate||48000;this.queue.push(x.samples)}; }',
+    ' process(inputs,outputs){const out=outputs[0];for(const c of out)c.fill(0);if(!out.length)return true;const frames=out[0].length;for(let f=0;f<frames;f++){while(this.queue.length&&this.pos>=this.queue[0].length/this.channels){this.pos-=this.queue[0].length/this.channels;this.queue.shift()}const data=this.queue[0];if(!data)continue;const n=data.length/this.channels;const i=Math.min(Math.floor(this.pos),n-1);const j=Math.min(i+1,n-1);const t=this.pos-i;for(let c=0;c<out.length;c++){const sc=Math.min(c,this.channels-1);const a=data[i*this.channels+sc]||0;const b=data[j*this.channels+sc]||0;out[c][f]=a+(b-a)*t}this.pos+=this.rate/sampleRate}return true}',
+    '}',
+    'registerProcessor("warning-signs-pcm",WarningSignsPcmProcessor);'
+  ].join('\n');
+  const moduleUrl=URL.createObjectURL(new Blob([workletCode],{type:'text/javascript'}));
+  const nodes=new Map();
+  const off=desktopBridge.onAudioData(packet=>{
+    try{
+      let pcm=packet.pcm;
+      if(pcm instanceof ArrayBuffer)pcm=new Uint8Array(pcm);
+      else if(ArrayBuffer.isView(pcm))pcm=new Uint8Array(pcm.buffer,pcm.byteOffset,pcm.byteLength);
+      else if(pcm&&Array.isArray(pcm.data))pcm=Uint8Array.from(pcm.data);
+      else return;
+      const meta=packet.meta||{};
+      const channels=Math.max(1,Math.min(2,Number(meta.channels)||2));
+      const bits=Number(meta.bitsPerSample)||32;
+      const isFloat=meta.isFloat!==false;
+      const sampleBytes=bits/8;
+      const count=Math.floor(pcm.byteLength/sampleBytes);
+      const view=new DataView(pcm.buffer,pcm.byteOffset,pcm.byteLength);
+      const samples=new Float32Array(count);
+      for(let i=0;i<count;i++){
+        const offset=i*sampleBytes;
+        if(isFloat&&bits===32)samples[i]=view.getFloat32(offset,true);
+        else if(bits===16)samples[i]=view.getInt16(offset,true)/32768;
+        else if(bits===32)samples[i]=view.getInt32(offset,true)/2147483648;
+        else samples[i]=0;
+      }
+      let node=nodes.get(packet.pid);
+      if(!node){
+        node=new AudioWorkletNode(context,'warning-signs-pcm',{numberOfInputs:0,numberOfOutputs:1,outputChannelCount:[channels]});
+        node.port.postMessage({samples:new Float32Array(0),channels,rate:Number(meta.sampleRate)||48000});
+        node.connect(destination);nodes.set(packet.pid,node);
+      }
+      node.port.postMessage({samples,channels,rate:Number(meta.sampleRate)||48000},[samples.buffer]);
+    }catch(e){console.warn('Falha ao receber áudio do aplicativo',e)}
+  });
+  const offError=desktopBridge.onAudioError(info=>{if(info&&info.error)$('#desktop-audio-status').textContent='Falha no áudio de um programa: '+info.error});
+  try{
+    await context.audioWorklet.addModule(moduleUrl);
+    URL.revokeObjectURL(moduleUrl);
+    await context.resume();
+    const result=await desktopBridge.startAudioApps(pids);
+    if(!result||!result.started||!result.started.length)throw new Error('O Windows não conseguiu iniciar a captura dos programas marcados.');
+    if(result.failed&&result.failed.length)throw new Error('Não foi possível iniciar a captura de todos os programas marcados.');
+    desktopAudioSession={context,destination,nodes,off,offError};
+    $('#desktop-audio-status').textContent='Capturando o áudio dos programas selecionados.';
+    return destination.stream;
+  }catch(e){
+    off();offError();URL.revokeObjectURL(moduleUrl);
+    await desktopBridge.stopAudioApps().catch(()=>{});
+    await context.close().catch(()=>{});
+    throw e;
+  }
+}
+
+async function stopDesktopAppAudio(){
+  const state=desktopAudioSession;desktopAudioSession=null;
+  if(state){state.off();state.offError();state.nodes.forEach(node=>{try{node.disconnect()}catch{}});await state.context.close().catch(()=>{})}
+  if(desktopBridge)await desktopBridge.stopAudioApps().catch(()=>{});
+}
 const rnd=n=>Array.from(crypto.getRandomValues(new Uint8Array(n)),b=>"abcdefghjkmnpqrstuvwxyz23456789"[b%31]).join('');
 const okId=s=>/^[a-z0-9]{3,12}$/.test(s||'');
 const msg=t=>$('#msg').textContent=t;
@@ -464,29 +611,78 @@ function back(){
 }
 async function share(){
   if(!peer||peer.state!=='joined'){msg('A sala ainda não conectou (estado: '+String(peer&&peer.state||'desconhecido')+'). Aguarde ou use “Tentar reconectar”.');$('#retry-connect').style.display='inline-flex';return}
-  try{myStream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:true})}
+  const mode=desktopBridge?desktopAudioMode():'system';
+  const appPids=mode==='apps'?selectedDesktopAudioPids():[];
+  if(mode==='apps'&&!appPids.length){$('#desktop-audio-status').textContent='Marque pelo menos um programa para compartilhar o áudio.';return}
+  let appAudioStream=null;
+  if(mode==='apps'){
+    try{appAudioStream=await startDesktopAppAudio(appPids)}
+    catch(e){msg('Não foi possível capturar o áudio dos programas: '+errT(e));return}
+  }
+  try{myStream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:mode==='system'})}
   catch(e){
+    if(appAudioStream)await stopDesktopAppAudio();
     if(e&&e.name==='NotAllowedError'){msg('A transmissão foi cancelada ou bloqueada ('+errT(e)+').');return}
-    try{myStream=await navigator.mediaDevices.getDisplayMedia({video:true})}
+    try{myStream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:false})}
     catch(e2){msg('Não foi possível iniciar a transmissão: '+errT(e2));return}
   }
+  if(mode==='none')myStream=new MediaStream(myStream.getVideoTracks());
+  else if(appAudioStream)myStream=new MediaStream([...myStream.getVideoTracks(),...appAudioStream.getAudioTracks()]);
   leaveWatch();
   myStream.getVideoTracks()[0].onended=stop;
   sharing=true;
+  await applyStreamQuality();
   try{peer.addStream(myStream,{role:'screen',label:'Tela compartilhada'})}
-  catch(e){myStream.getTracks().forEach(t=>t.stop());myStream=null;sharing=false;msg('Não foi possível enviar a tela: '+errT(e));return}
+  catch(e){myStream.getTracks().forEach(t=>t.stop());myStream=null;sharing=false;stopDesktopAppAudio();msg('Não foi possível enviar a tela: '+errT(e));return}
   const pv=$('#pv');pv.srcObject=myStream;pv.style.display='block';
   $('#go').style.display='none';$('#stop').style.display='';
   msg('Você está ao vivo. Seus amigos já podem assistir.');bcast();
 }
 function stop(){
-  if(!myStream)return;
   const stream=myStream;myStream=null;sharing=false;
-  if(peer)try{peer.removeStream(stream)}catch(e){}
-  stream.getTracks().forEach(t=>t.stop());
+  if(stream){if(peer)try{peer.removeStream(stream)}catch(e){}stream.getTracks().forEach(t=>t.stop())}
+  stopDesktopAppAudio();
   const pv=$('#pv');pv.srcObject=null;pv.style.display='none';
   $('#stop').style.display='none';if(canShare)$('#go').style.display='';
   msg('Transmissão encerrada.');bcast();
+}
+
+let qualityApplySequence=0;
+async function applyStreamQuality(){
+  const stream=myStream,track=stream&&stream.getVideoTracks()[0];
+  const qualityValue=$('#quality').value;
+  const fpsValue=$('#fps').value;
+  if(!track){
+    $('#quality-status').textContent=qualityValue==='native'&&fpsValue==='native'
+      ?'Padrão nativo da tela. Se a conexão ficar instável, reduza para 720p ou limite os FPS.'
+      :'Configuração selecionada para a próxima transmissão.';
+    return;
+  }
+  const sequence=++qualityApplySequence;
+  const constraints={};
+  if(qualityValue!=='native'){
+    const maxWidth=Number(qualityValue)||1280;
+    const maxHeight=Math.round(maxWidth*9/16);
+    constraints.width={ideal:maxWidth,max:maxWidth};
+    constraints.height={ideal:maxHeight,max:maxHeight};
+  }
+  if(fpsValue!=='native'){
+    const maxFps=Number(fpsValue)||30;
+    constraints.frameRate={ideal:maxFps,max:maxFps};
+  }
+  try{
+    if(Object.keys(constraints).length)await track.applyConstraints(constraints);
+    else await track.applyConstraints();
+    if(sequence!==qualityApplySequence||myStream!==stream)return;
+    const actual=track.getSettings();
+    const resolution=qualityValue==='native'?'nativa':(Number(qualityValue)+'p máx.');
+    const fps=fpsValue==='native'?'FPS nativo':('até '+fpsValue+' FPS');
+    $('#quality-status').textContent='Aplicado: '+resolution+' · '+fps+' (fonte: '+(actual.width||'?')+'×'+(actual.height||'?')+', '+Math.round(actual.frameRate||0)+' FPS).';
+  }catch(e){
+    if(sequence!==qualityApplySequence||myStream!==stream)return;
+    const actual=track.getSettings();
+    $('#quality-status').textContent='Não foi possível aplicar esse limite; a transmissão continua com '+(actual.width||'?')+'×'+(actual.height||'?')+' a '+Math.round(actual.frameRate||0)+' FPS.';
+  }
 }
 
 const mk=(tag,cls,txt)=>{const x=document.createElement(tag);if(cls)x.className=cls;if(txt!=null)x.textContent=txt;return x};
@@ -598,6 +794,15 @@ $('#chat-send').onclick=sendChat;
 $('#chat-input').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();sendChat()}});
 $('#voltar').onclick=back;$('#retry-connect').onclick=restartConnection;
 $('#go').onclick=share;$('#stop').onclick=stop;$('#sair').onclick=leaveWatch;
+$('#quality').onchange=applyStreamQuality;$('#fps').onchange=applyStreamQuality;
+if(desktopBridge){
+  $('#desktop-audio-refresh').onclick=refreshDesktopAudioApps;
+  document.querySelectorAll('input[name="desktop-audio-mode"]').forEach(radio=>radio.addEventListener('change',()=>{
+    $('#desktop-audio-app-picker').style.display=desktopAudioMode()==='apps'?'block':'none';
+    if(desktopAudioMode()==='apps'&&!$('#desktop-audio-apps').children.length)refreshDesktopAudioApps();
+  }));
+  refreshDesktopAudioApps();
+}
 $('#convite').onclick=async()=>{const l=$('#convite').dataset.link;try{await navigator.clipboard.writeText(l);$('#convite').textContent='Copiado!'}catch(e){window.prompt('Copie o convite:',l)}setTimeout(()=>$('#convite').textContent='Copiar convite',1800)};
 $('#som').onclick=()=>{const v=$('#v');v.muted=!v.muted;$('#som').textContent=v.muted?'Ativar som':'Silenciar';v.play().catch(()=>{})};
 $('#full').onclick=async()=>{
