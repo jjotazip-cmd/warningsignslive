@@ -283,6 +283,7 @@ body.home-mode{background:#f3f3f3;color:#111}
       <section class="card">
         <div class="row"><input id="nome" placeholder="Seu nome" maxlength="24" autocomplete="nickname"><button id="go">Transmitir minha tela</button><button id="stop" class="stop" style="display:none">Parar transmissão</button></div>
         <p class="muted" id="msg">Conectando…</p>
+        <button class="alt" id="retry-connect" type="button" style="display:none">Tentar reconectar</button>
         <video id="pv" autoplay muted playsinline style="display:none"></video>
       </section>
       <section class="card"><h2>Ao vivo agora</h2><div id="lista" class="tiles"></div></section>
@@ -332,7 +333,7 @@ musBtn.onclick=()=>{if(bgm.paused){userPaused=false;bgm.play().catch(()=>{})}els
 /* ---------- espaço (sala ou grupo) ---------- */
 const METERED_PUBLISHABLE_KEY='pk_live_726fb0a89e31f0909c1a184a50e07dade2b20e5d';
 let space=null,peer=null,peerReady=false,members={},remoteStreams={},watching=null;
-let myStream=null,sharing=false,joinGeneration=0,joinRetryTimer=null,chatMessages=[];
+let myStream=null,sharing=false,joinGeneration=0,joinTimeoutTimer=null,chatMessages=[];
 
 /* ---------- sala com sinalização Realtime da Metered ---------- */
 const state=()=>({t:'hello',name:nome(),sharing,watching});
@@ -391,6 +392,8 @@ function enter(kind,code,label){
   showG('#home',false);showG('#space',true);renderAll();msg('Conectando à sala…');join();
 }
 async function join(){
+  clearTimeout(joinTimeoutTimer);joinTimeoutTimer=null;
+  $('#retry-connect').style.display='none';
   const sp=space,gen=++joinGeneration;
   if(!sp)return;
   const MeteredPeer=window.MeteredPeer&&window.MeteredPeer.MeteredPeer;
@@ -415,23 +418,41 @@ async function join(){
   });
   p.on('state-change',({to})=>{
     if(peer!==p||space!==sp)return;
-    if(to==='reconnecting'){peerReady=false;msg('Conexão instável. Reconectando à sala…')}
-    else if(to==='joined'){peerReady=true;msg('Conectado à sala.');bcast()}
-    else if(to==='closed'){peerReady=false;msg('A conexão foi encerrada. Volte e entre na sala novamente.')}
+    if(to==='joining'){peerReady=false;msg('Estabelecendo conexão com a sala…')}
+    else if(to==='reconnecting'){peerReady=false;msg('Conexão instável. Reconectando à sala…')}
+    else if(to==='joined'){clearTimeout(joinTimeoutTimer);joinTimeoutTimer=null;peerReady=true;$('#retry-connect').style.display='none';msg('Conectado à sala.');bcast()}
+    else if(to==='closed'){peerReady=false;clearTimeout(joinTimeoutTimer);joinTimeoutTimer=null;msg('A conexão foi encerrada. Toque em “Tentar reconectar”.');$('#retry-connect').style.display='inline-flex'}
   });
-  p.on('error',({err})=>{
-    if(peer===p)msg('Conexão: '+errT(err));
+  p.on('error',event=>{
+    if(peer!==p)return;
+    const e=event&&event.err?event.err:event;
+    peerReady=false;msg('Erro da conexão: '+errT(e));
+    if(p.state==='closed')$('#retry-connect').style.display='inline-flex';
   });
+  joinTimeoutTimer=setTimeout(()=>{
+    if(peer!==p||space!==sp||p.state==='joined')return;
+    peerReady=false;
+    msg('A Metered não concluiu a conexão (estado: '+String(p.state||'desconhecido')+'). Verifique se a chave está ativa e permite Send e o canal warnsig-*; depois tente novamente.');
+    $('#retry-connect').style.display='inline-flex';
+  },15000);
   try{
     await p.join('warnsig-'+sp.kind+'-'+sp.code);
     if(peer!==p||space!==sp||gen!==joinGeneration)return;
-    peerReady=true;msg('Conectado à sala.');bcast();
+    clearTimeout(joinTimeoutTimer);joinTimeoutTimer=null;
+    peerReady=true;$('#retry-connect').style.display='none';msg('Conectado à sala.');bcast();
   }catch(e){
-    if(peer===p&&space===sp){peerReady=false;msg('Não foi possível entrar na sala: '+errT(e))}
+    if(peer===p&&space===sp){clearTimeout(joinTimeoutTimer);joinTimeoutTimer=null;peerReady=false;msg('Falha ao conectar: '+errT(e)+'. Confira chave ativa, permissão Send e canal warnsig-*.');$('#retry-connect').style.display='inline-flex'}
   }
 }
+async function restartConnection(){
+  clearTimeout(joinTimeoutTimer);joinTimeoutTimer=null;joinGeneration++;
+  const old=peer;peer=null;peerReady=false;$('#retry-connect').style.display='none';
+  if(old)await old.close().catch(()=>{});
+  if(space){msg('Tentando conectar novamente…');join()}
+}
 function teardown(){
-  clearTimeout(joinRetryTimer);joinRetryTimer=null;joinGeneration++;
+  clearTimeout(joinTimeoutTimer);joinTimeoutTimer=null;joinGeneration++;
+  $('#retry-connect').style.display='none';
   if(myStream)stop();leaveWatch();members={};remoteStreams={};peerReady=false;
   const old=peer;peer=null;
   if(old)old.close().catch(()=>{});
@@ -442,7 +463,7 @@ function back(){
   showG('#space',false);showG('#home',true);loadGroups();startMusic();
 }
 async function share(){
-  if(!peer||peer.state!=='joined'){msg('Ainda conectando à sala. Tente novamente em instantes.');return}
+  if(!peer||peer.state!=='joined'){msg('A sala ainda não conectou (estado: '+String(peer&&peer.state||'desconhecido')+'). Aguarde ou use “Tentar reconectar”.');$('#retry-connect').style.display='inline-flex';return}
   try{myStream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:true})}
   catch(e){
     if(e&&e.name==='NotAllowedError'){msg('A transmissão foi cancelada ou bloqueada ('+errT(e)+').');return}
@@ -571,7 +592,7 @@ $('#criar').onclick=()=>{const n=$('#gnome').value.trim();if(!n){$('#hmsg').text
 $('#gentrar').onclick=()=>{const c=$('#gcodigo').value.trim().toLowerCase();if(!okId(c)){$('#hmsg').textContent='Código de grupo inválido.';return}const e=store.get().find(x=>x.code===c);enterGroup(c,e?e.name:'Grupo '+c)};
 $('#chat-send').onclick=sendChat;
 $('#chat-input').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();sendChat()}});
-$('#voltar').onclick=back;
+$('#voltar').onclick=back;$('#retry-connect').onclick=restartConnection;
 $('#go').onclick=share;$('#stop').onclick=stop;$('#sair').onclick=leaveWatch;
 $('#convite').onclick=async()=>{const l=$('#convite').dataset.link;try{await navigator.clipboard.writeText(l);$('#convite').textContent='Copiado!'}catch(e){window.prompt('Copie o convite:',l)}setTimeout(()=>$('#convite').textContent='Copiar convite',1800)};
 $('#som').onclick=()=>{const v=$('#v');v.muted=!v.muted;$('#som').textContent=v.muted?'Ativar som':'Silenciar';v.play().catch(()=>{})};
