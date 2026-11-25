@@ -1,0 +1,29 @@
+{
+  "name": "warning-signs-desktop",
+  "version": "1.0.1",
+  "description": "Warning Signs desktop app for Windows with per-application audio capture",
+  "main": "main.cjs",
+  "private": true,
+  "scripts": {
+    "postinstall": "electron-builder install-app-deps",
+    "start": "electron .",
+    "dist": "electron-builder --win nsis"
+  },
+  "dependencies": {
+    "electron-native-screenshare": "1.2.0"
+  },
+  "devDependencies": {
+    "electron": "45.0.0",
+    "electron-builder": "26.0.12"
+  },
+  "build": {
+    "appId": "live.warningsigns.desktop",
+    "productName": "Warning Signs",
+    "asar": true,
+    "directories": { "output": "dist" },
+    "files": ["main.cjs", "preload.cjs", "audio-worker.cjs", "picker.html", "picker-preload.cjs", "package.json", "node_modules/**/*"],
+    "asarUnpack": ["node_modules/electron-native-screenshare/**/*"],
+    "win": { "target": "nsis", "icon": "icon.ico", "artifactName": "Warning-Signs-Setup-${version}.${ext}" },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true }
+  }
+}
