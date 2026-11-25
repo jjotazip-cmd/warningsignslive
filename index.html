@@ -334,7 +334,8 @@ musBtn.onclick=()=>{if(bgm.paused){userPaused=false;bgm.play().catch(()=>{})}els
 const MAXM=12,BEAT=6000;
 let space=null,peer=null,mySlotN=0,pollT=null,conns={},members={},watching=null,retry=null,inCall=null;
 let myStream=null,sharing=false,calls={};let chatMessages=[];
-let peerOptionsPromise=null,relayConfigured=false;
+let peerOptionsPromise=null,relayConfigured=false,reconnectTimer=null,reconnectAttempts=0;
+const retryablePeerErrors=new Set(['network','socket-error','socket-closed','server-error']);
 async function getPeerOptions(){
   if(!peerOptionsPromise)peerOptionsPromise=(async()=>{
     try{
@@ -353,6 +354,19 @@ const initial=n=>(n||'?').trim().charAt(0).toUpperCase()||'?';
 const state=()=>({t:'hello',name:nome(),sharing,watching});
 function bcast(){Object.values(conns).forEach(c=>{if(c.open){try{c.send(state())}catch(e){}}});renderAll()}
 
+function schedulePeerRetry(reason){
+  if(!space||reconnectTimer)return;
+  clearInterval(pollT);pollT=null;
+  const delay=Math.min(20000,2000*Math.pow(2,reconnectAttempts++));
+  msg('Conexão com o servidor caiu ('+reason+'). Tentando novamente em '+Math.ceil(delay/1000)+' s…');
+  reconnectTimer=setTimeout(()=>{reconnectTimer=null;if(space)join()},delay);
+  if(watching)leaveWatch();
+  const old=peer;peer=null;mySlotN=0;
+  Object.values(conns).forEach(c=>{try{c.close()}catch(e){}});
+  conns={};members={};
+  if(old)try{old.destroy()}catch(e){}
+  renderAll();
+}
 function claim(n,options){
   return new Promise((res,rej)=>{
     let ok=false;const p=new Peer(slotId(n),options||{});
@@ -364,6 +378,7 @@ function enter(kind,code,label){
   document.body.classList.remove('home-mode');document.body.classList.add('room-mode');
   entering=true;bgm.pause();
   teardown();
+  reconnectAttempts=0;
   chatMessages=[];
   space={kind,code,label};
   $('#titulo').textContent=label;
@@ -380,10 +395,12 @@ async function join(){
   if(space!==sp)return;
   let p=null;
   for(let n=1;n<=MAXM&&!p;n++){
-    try{p=await claim(n,options);if(space!==sp){p.destroy();return}mySlotN=n}catch(e){if(e!=='taken'){msg('Não foi possível conectar: '+e);return}}
+    try{p=await claim(n,options);if(space!==sp){p.destroy();return}mySlotN=n;reconnectAttempts=0}catch(e){if(e!=='taken'){if(retryablePeerErrors.has(e)){schedulePeerRetry(e);return}msg('Não foi possível conectar: '+e);return}}
   }
   if(!p){msg('Este espaço está cheio ('+MAXM+' pessoas).');return}
   peer=p;
+  peer.on('disconnected',()=>{if(peer===p&&!p.destroyed&&p.disconnected){msg('Conexão com o servidor interrompida. Tentando reconectar…');try{p.reconnect()}catch(e){schedulePeerRetry('network')}}});
+  peer.on('open',()=>{if(peer===p){reconnectAttempts=0;msg('Conexão restabelecida.');scan();bcast()}});
   peer.on('connection',c=>setup(c));
   peer.on('call',c=>{
     c.answer();inCall=c;
@@ -397,7 +414,7 @@ async function join(){
     c.on('error',()=>{if(inCall===c)msg('A sala conectou, mas o vídeo falhou. Tente sair da transmissão e entrar novamente.')});
     c.on('close',()=>{if(inCall===c)leaveWatch()});
   });
-  peer.on('error',e=>{if(e.type!=='peer-unavailable')msg('Conexão: '+errT(e))});
+  peer.on('error',e=>{if(retryablePeerErrors.has(e.type)){schedulePeerRetry(e.type);return}if(e.type!=='peer-unavailable')msg('Conexão: '+errT(e))});
   msg(relayConfigured?(canShare?'Pronto! Clique em “Transmitir minha tela” e mande o convite aos amigos.':'Mande o convite; aqui você assiste às transmissões dos amigos.'):'Conectado sem servidor de retransmissão. Algumas redes podem impedir a entrada ou o vídeo.');
   scan();pollT=setInterval(()=>{scan();bcast()},BEAT);renderAll();
 }
@@ -434,6 +451,7 @@ function teardown(){
   if(myStream)stop();
   leaveWatch();clearInterval(pollT);pollT=null;
   Object.values(conns).forEach(c=>{try{c.close()}catch(e){}});conns={};members={};
+  clearTimeout(reconnectTimer);reconnectTimer=null;
   if(peer){try{peer.destroy()}catch(e){}}peer=null;mySlotN=0;
 }
 function back(){
