@@ -4,18 +4,15 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'main.cjs'
-      - 'preload.cjs'
-      - 'audio-worker.cjs'
-      - 'picker.html'
-      - 'picker-preload.cjs'
-      - 'package.json'
-      - 'icon.ico'
+      - 'desktop-app/**'
       - '.github/workflows/build-warning-signs-windows.yml'
 
 jobs:
   build:
     runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop-app
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -28,5 +25,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: warning-signs-windows-installer
-          path: dist/*.exe
+          path: desktop-app/dist/*.exe
           if-no-files-found: error
