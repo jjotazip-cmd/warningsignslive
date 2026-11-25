@@ -1,15 +1,22 @@
-WARNING SIGNS — conexão TURN no Netlify
+WARNING SIGNS DESKTOP — versão para Windows
 
-Este pacote contém index.html e uma Netlify Function para buscar credenciais temporárias do servidor TURN da Metered. A chave privada fica nas variáveis de ambiente do Netlify, não no HTML.
+Esta versão abre o site Warning Signs em uma janela de aplicativo e adiciona captura de áudio dos aplicativos escolhidos. A captura nativa usa a API WASAPI por processo. O site para celular e navegador continua disponível.
 
-ANTES DE PUBLICAR
-1. No painel da Metered, copie o nome do app (a parte antes de .metered.live) e a API Key da conta.
-2. No Netlify, abra o projeto do site: Project configuration > Environment variables.
-3. Crie METERED_APP_NAME com o nome do app e METERED_API_KEY com a chave. Se houver escolha de escopo, inclua Functions.
-4. Publique o projeto com a pasta netlify/functions e o arquivo netlify.toml. Só substituir o index.html por upload manual não publica a função.
+GERAR O INSTALADOR PELO GITHUB
+1. Envie a pasta desktop-app e a pasta .github que acompanham este pacote para a raiz do repositório GitHub do site.
+2. Envie também o index.html atualizado para a raiz do mesmo repositório e faça o commit.
+3. Aguarde o Netlify concluir a publicação do site atualizado.
+4. No GitHub, abra Actions > Build Warning Signs for Windows > execução mais recente.
+5. Baixe o artefato warning-signs-windows-installer. Ele contém o instalador .exe.
 
-O Netlify exige deploy por Git conectado ou pela Netlify CLI para publicar Functions. Depois de configurar as variáveis, faça um novo deploy.
+GERAÇÃO MANUAL NO WINDOWS
+1. Abra esta pasta no Windows.
+2. Instale Node.js 22 e Visual Studio Build Tools com “Desenvolvimento para desktop com C++”.
+3. No terminal dentro desta pasta, execute npm install e depois npm run dist.
+4. O instalador aparecerá em desktop-app/dist/.
 
-A função fica disponível em /.netlify/functions/turn-credentials. O site mantém conexão direta como fallback caso o serviço TURN esteja indisponível.
+O instalador é separado do site publicado no Netlify. A opção de seleção de áudio aparece somente dentro do app Windows. No site/PWA, o navegador continua oferecendo as opções normais de compartilhamento.
 
-Não coloque a API Key no HTML nem envie a chave em mensagens.
+Na sala, escolha “Aplicativos selecionados”, marque até seis janelas/programas e inicie a transmissão. O Windows captura o áudio do processo e dos processos-filhos; duas janelas do mesmo programa podem aparecer como um único aplicativo.
+
+O pacote usa o módulo nativo electron-native-screenshare (licença MIT) para a captura por processo no Windows. O código nativo precisa ser compilado no Windows; o workflow do GitHub faz essa compilação em um runner Windows.
