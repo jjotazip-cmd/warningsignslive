@@ -489,6 +489,10 @@ function stop(){
   msg('Transmissão encerrada.');bcast();
 }
 
+const mk=(tag,cls,txt)=>{const x=document.createElement(tag);if(cls)x.className=cls;if(txt!=null)x.textContent=txt;return x};
+const initial=n=>(n||'?').trim().charAt(0).toUpperCase()||'?';
+function avatar(name,cls){return mk('div','av'+(cls?' '+cls:''),initial(name))}
+
 function addChatMessage(name,text,self,ts){
   const clean=String(text||'').trim().slice(0,500);
   if(!clean)return;
