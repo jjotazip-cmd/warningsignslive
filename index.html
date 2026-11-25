@@ -145,6 +145,13 @@ button.stop:hover{background:#777777}
   display:block!important;width:100%!important;height:100%!important;max-width:none!important;
   max-height:none!important;min-height:0!important;object-fit:contain!important;align-self:stretch
 }
+body.desktop-stage-fullscreen{overflow:hidden!important}
+body.desktop-stage-fullscreen .broadcast-canvas{position:fixed!important;inset:0!important;z-index:99999!important;width:100vw!important;height:100vh!important;height:100dvh!important;min-height:0!important;padding:0!important;border:0!important;border-radius:0!important}
+body.desktop-stage-fullscreen #broadcast-idle,body.desktop-stage-fullscreen #pv{display:none!important}
+body.desktop-stage-fullscreen #stage{position:absolute!important;inset:0!important;z-index:2!important;display:grid!important;width:100%!important;height:100%!important;min-height:0!important;margin:0!important;padding:16px!important;border:0!important;border-radius:0!important;grid-template-rows:auto minmax(0,1fr)!important}
+body.desktop-stage-fullscreen #stage video{width:100%!important;height:100%!important;max-height:none!important;min-height:0!important;object-fit:contain!important}
+.stage-volume{display:inline-flex;align-items:center;gap:8px;color:var(--muted,#c5c7cc);font-size:.85rem}
+.stage-volume input{width:100px;accent-color:#f4f4f4}
 #side{position:sticky;top:90px;align-content:start;gap:12px;overflow:hidden}
 .side-img,footer{display:none!important}
 #side h2{margin:0}
@@ -371,7 +378,7 @@ body.home-mode{background:#f3f3f3;color:#111}
         <section class="card" id="stage" style="display:none">
           <div class="row" style="justify-content:space-between">
             <div><h2 id="quem">Assistindo</h2><div id="wq" class="row" style="gap:6px;margin-top:6px"></div></div>
-            <span class="row"><button class="alt" id="som">Ativar som</button><button class="alt" id="full">Tela cheia</button><button class="alt" id="sair">Sair</button></span>
+            <span class="row"><button class="alt" id="som">Ativar som</button><label class="stage-volume" for="volume">Volume <input id="volume" type="range" min="0" max="100" value="80" aria-label="Volume da transmissão"><span id="volume-value">80%</span></label><button class="alt" id="full">Tela cheia</button><button class="alt" id="sair">Sair</button></span>
           </div>
           <video id="v" autoplay playsinline muted></video>
         </section>
@@ -476,10 +483,10 @@ function updateDesktopAudioSelectionStatus(){
     : `${muted.size} silenciado(s); ${shared} aplicativo(s) será(ão) compartilhado(s).`;
 }
 
-async function startDesktopAppAudio(pids){
+async function startDesktopAppAudio(pids,context){
   if(!desktopBridge)throw new Error('O seletor de áudio só está disponível no app Windows.');
   if(pids.length>8)throw new Error('Marque mais aplicativos para silenciar. O limite é de oito apps de áudio por transmissão.');
-  const context=new AudioContext({sampleRate:48000});
+  context=context||new AudioContext({sampleRate:48000});
   const destination=context.createMediaStreamDestination();
   const workletCode=[
     'class WarningSignsPcmProcessor extends AudioWorkletProcessor {',
@@ -706,22 +713,35 @@ async function share(){
   const openAppPids=mode==='exclude'?allDesktopAudioPids():[];
   const appPids=openAppPids.filter(pid=>!mutedPids.includes(pid));
   if(mode==='exclude'&&!openAppPids.length){$('#desktop-audio-status').textContent='Nenhum aplicativo aberto foi encontrado. Atualize a lista.';return}
-  if(mode==='exclude'&&appPids.length>8){updateDesktopAudioSelectionStatus();return}
+  const appsOverLimit=mode==='exclude'&&appPids.length>8;
+  const capturableAppPids=appsOverLimit?appPids.slice(0,8):appPids;
+  if(appsOverLimit)$('#desktop-audio-status').textContent='O Windows permite capturar até 8 apps por vez; os primeiros 8 sem silenciar terão áudio.';
+  // Desbloqueia o AudioContext enquanto ainda estamos no clique do usuário.
+  // O seletor de tela abre uma janela nativa e pode suspender a ativação de áudio.
+  let preparedAudioContext=null;
+  let preparedAudioResume=null;
+  if(mode==='exclude'&&capturableAppPids.length){
+    try{preparedAudioContext=new AudioContext({sampleRate:48000});preparedAudioResume=preparedAudioContext.resume();preparedAudioResume.catch(()=>{})}
+    catch(e){preparedAudioContext=null;$('#desktop-audio-status').textContent='Não foi possível preparar o áudio dos aplicativos: '+errT(e)}
+  }
   let displayStream;
   try{displayStream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:mode==='system'})}
   catch(e){
+    if(preparedAudioContext)await preparedAudioContext.close().catch(()=>{});
     if(e&&e.name==='NotAllowedError'){msg('A transmissão foi cancelada ou bloqueada ('+errT(e)+').');return}
     if(mode!=='system'){msg('Não foi possível iniciar a transmissão: '+errT(e));return}
     try{displayStream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:false})}
     catch(e2){msg('Não foi possível iniciar a transmissão: '+errT(e2));return}
   }
   let appAudioStream=null;
-  if(mode==='exclude'&&appPids.length){
-    try{appAudioStream=await startDesktopAppAudio(appPids)}
+  if(mode==='exclude'&&capturableAppPids.length){
+    try{if(preparedAudioResume)await preparedAudioResume;appAudioStream=await startDesktopAppAudio(capturableAppPids,preparedAudioContext)}
     catch(e){
+      if(preparedAudioContext&&preparedAudioContext!==desktopAudioSession?.context)await preparedAudioContext.close().catch(()=>{});
       $('#desktop-audio-status').textContent='A captura seletiva falhou: '+errT(e)+'. A tela continuará sem áudio para não enviar o som dos aplicativos marcados.';
     }
   }
+  if(appAudioStream&&appsOverLimit)$('#desktop-audio-status').textContent='Áudio ativo dos primeiros 8 aplicativos sem silenciar. Para incluir outros, silencie mais programas.';
   if(mode==='none'||(mode==='exclude'&&!appAudioStream))myStream=new MediaStream(displayStream.getVideoTracks());
   else if(appAudioStream)myStream=new MediaStream([...displayStream.getVideoTracks(),...appAudioStream.getAudioTracks()]);
   else myStream=displayStream;
@@ -904,16 +924,34 @@ if(desktopBridge){
   refreshDesktopAudioApps();
 }
 $('#convite').onclick=async()=>{const l=$('#convite').dataset.link;try{await navigator.clipboard.writeText(l);$('#convite').textContent='Copiado!'}catch(e){window.prompt('Copie o convite:',l)}setTimeout(()=>$('#convite').textContent='Copiar convite',1800)};
-$('#som').onclick=()=>{const v=$('#v');v.muted=!v.muted;$('#som').textContent=v.muted?'Ativar som':'Silenciar';v.play().catch(()=>{})};
+$('#v').volume=.8;
+$('#som').onclick=()=>{const v=$('#v');v.muted=!v.muted;if(!v.muted)v.volume=Number($('#volume').value)/100;$('#som').textContent=v.muted?'Ativar som':'Silenciar';v.play().catch(()=>{})};
+$('#volume').addEventListener('input',()=>{
+  const v=$('#v'),level=Number($('#volume').value)/100;
+  v.volume=level;v.muted=level===0;
+  $('#volume-value').textContent=Math.round(level*100)+'%';
+  $('#som').textContent=v.muted?'Ativar som':'Silenciar';
+  if(!v.muted)v.play().catch(()=>{});
+});
+$('#volume').addEventListener('change',()=>{if(Number($('#volume').value)>0){$('#v').muted=false;$('#som').textContent='Silenciar'}});
 function updateFullscreenButton(){
-  const active=!!(document.fullscreenElement||document.webkitFullscreenElement||document.webkitIsFullScreen);
+  const active=document.body.classList.contains('desktop-stage-fullscreen')||!!(document.fullscreenElement||document.webkitFullscreenElement||document.webkitIsFullScreen);
   $('#full').textContent=active?'Sair da tela cheia':'Tela cheia';
 }
 document.addEventListener('fullscreenchange',updateFullscreenButton);
 document.addEventListener('webkitfullscreenchange',updateFullscreenButton);
+if(desktopBridge&&desktopBridge.onFullscreenChange){
+  desktopBridge.onFullscreenChange(active=>{document.body.classList.toggle('desktop-stage-fullscreen',active);updateFullscreenButton()});
+}
 $('#full').onclick=async()=>{
   const stage=$('#stage'),v=$('#v');
   try{
+    if(desktopBridge&&desktopBridge.setFullscreen){
+      const active=document.body.classList.contains('desktop-stage-fullscreen');
+      await desktopBridge.setFullscreen(!active);
+      document.body.classList.toggle('desktop-stage-fullscreen',!active);
+      updateFullscreenButton();return;
+    }
     if(document.fullscreenElement||document.webkitFullscreenElement||document.webkitIsFullScreen){
       if(document.exitFullscreen)await document.exitFullscreen();
       else if(document.webkitExitFullscreen)document.webkitExitFullscreen();
