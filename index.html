@@ -614,20 +614,22 @@ async function share(){
   const mode=desktopBridge?desktopAudioMode():'system';
   const appPids=mode==='apps'?selectedDesktopAudioPids():[];
   if(mode==='apps'&&!appPids.length){$('#desktop-audio-status').textContent='Marque pelo menos um programa para compartilhar o áudio.';return}
+  let displayStream;
+  try{displayStream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:mode==='system'})}
+  catch(e){
+    if(e&&e.name==='NotAllowedError'){msg('A transmissão foi cancelada ou bloqueada ('+errT(e)+').');return}
+    if(mode!=='system'){msg('Não foi possível iniciar a transmissão: '+errT(e));return}
+    try{displayStream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:false})}
+    catch(e2){msg('Não foi possível iniciar a transmissão: '+errT(e2));return}
+  }
   let appAudioStream=null;
   if(mode==='apps'){
     try{appAudioStream=await startDesktopAppAudio(appPids)}
-    catch(e){msg('Não foi possível capturar o áudio dos programas: '+errT(e));return}
+    catch(e){displayStream.getTracks().forEach(track=>track.stop());msg('Não foi possível capturar o áudio dos programas: '+errT(e));return}
   }
-  try{myStream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:mode==='system'})}
-  catch(e){
-    if(appAudioStream)await stopDesktopAppAudio();
-    if(e&&e.name==='NotAllowedError'){msg('A transmissão foi cancelada ou bloqueada ('+errT(e)+').');return}
-    try{myStream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:false})}
-    catch(e2){msg('Não foi possível iniciar a transmissão: '+errT(e2));return}
-  }
-  if(mode==='none')myStream=new MediaStream(myStream.getVideoTracks());
-  else if(appAudioStream)myStream=new MediaStream([...myStream.getVideoTracks(),...appAudioStream.getAudioTracks()]);
+  if(mode==='none')myStream=new MediaStream(displayStream.getVideoTracks());
+  else if(appAudioStream)myStream=new MediaStream([...displayStream.getVideoTracks(),...appAudioStream.getAudioTracks()]);
+  else myStream=displayStream;
   leaveWatch();
   myStream.getVideoTracks()[0].onended=stop;
   sharing=true;
