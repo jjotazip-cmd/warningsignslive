@@ -159,10 +159,10 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle('desktop:list-audio-apps', event => isTrusted(event) ? listWindows() : []);
-  ipcMain.handle('desktop:start-audio-apps', async (event, pids) => {
-    if (!isTrusted(event) || !Array.isArray(pids)) return { started: [], failed: [] };
+  ipcMain.handle('desktop:start-audio-apps', async (event, pids, includeMode = false) => {
+    if (!isTrusted(event) || !Array.isArray(pids) || typeof includeMode !== 'boolean') return { started: [], failed: [] };
     stopAllAudioWorkers();
-    const safePids = [...new Set(pids.map(Number).filter(pid => Number.isInteger(pid) && pid > 0 && pid !== process.pid))].slice(0, 6);
+    const safePids = [...new Set(pids.map(Number).filter(pid => Number.isInteger(pid) && pid > 0 && pid !== process.pid))].slice(0, includeMode ? 6 : 1);
     const results = await Promise.all(safePids.map(pid => new Promise(resolve => {
       let settled = false;
       let worker;
@@ -183,7 +183,7 @@ app.whenReady().then(() => {
           if (audioWorkers.get(pid) === worker) audioWorkers.delete(pid);
           if (!settled) finish({ pid, error: 'O capturador de áudio fechou (código '+code+').' });
         });
-        worker.postMessage({ command: 'start', pid });
+        worker.postMessage({ command: 'start', pid, includeMode });
       } catch (error) {
         if (worker) stopWorker(pid);
         finish({ pid, error: String(error.message || error) });

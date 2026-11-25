@@ -17,6 +17,6 @@ GERAÇÃO MANUAL NO WINDOWS
 
 O instalador é separado do site publicado no Netlify. A opção de seleção de áudio aparece somente dentro do app Windows. No site/PWA, o navegador continua oferecendo as opções normais de compartilhamento.
 
-Na sala, escolha “Aplicativos selecionados”, marque até seis janelas/programas e inicie a transmissão. O Windows captura o áudio do processo e dos processos-filhos; duas janelas do mesmo programa podem aparecer como um único aplicativo.
+Na sala, escolha “Áudio do sistema, exceto aplicativo marcado”, selecione um aplicativo e inicie a transmissão. O áudio do aplicativo escolhido fica fora da transmissão; o restante do áudio do sistema é compartilhado. Selecione um aplicativo por vez.
 
 O pacote usa o módulo nativo electron-native-screenshare (licença MIT) para a captura por processo no Windows. O código nativo precisa ser compilado no Windows; o workflow do GitHub faz essa compilação em um runner Windows.

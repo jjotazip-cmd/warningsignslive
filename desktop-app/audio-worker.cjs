@@ -9,13 +9,18 @@ process.parentPort.on('message', event => {
   if (message.command !== 'start') return;
   const pid = Number(message.pid);
   try {
-    const started = nativeAudio.startCapture(pid, true, (data, meta) => {
+    if (typeof nativeAudio.isAvailable === 'function' && !nativeAudio.isAvailable()) {
+      const loadError = typeof nativeAudio.getLoadError === 'function' ? nativeAudio.getLoadError() : null;
+      throw new Error('Módulo nativo de áudio indisponível.' + (loadError ? ' ' + loadError : ''));
+    }
+    const started = nativeAudio.startCapture(pid, message.includeMode === true, (data, meta) => {
       const pcm = Uint8Array.from(data);
       process.parentPort.postMessage({ type: 'audio', pid, pcm, meta });
     });
     if (!started) throw new Error('A captura de áudio não iniciou.');
     process.parentPort.postMessage({ type: 'started', pid });
   } catch (error) {
-    process.parentPort.postMessage({ type: 'error', error: String(error.message || error) });
+    const detail = error && error.message && error.message !== 'Error' ? error.message : error && error.stack ? error.stack : String(error);
+    process.parentPort.postMessage({ type: 'error', error: String(detail) });
   }
 });
