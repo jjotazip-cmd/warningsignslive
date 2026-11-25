@@ -1,0 +1,32 @@
+name: Build Warning Signs for Windows
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'main.cjs'
+      - 'preload.cjs'
+      - 'audio-worker.cjs'
+      - 'picker.html'
+      - 'picker-preload.cjs'
+      - 'package.json'
+      - 'icon.ico'
+      - '.github/workflows/build-warning-signs-windows.yml'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies and compile native audio module
+        run: npm install
+      - name: Build Windows installer
+        run: npm run dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: warning-signs-windows-installer
+          path: dist/*.exe
+          if-no-files-found: error
