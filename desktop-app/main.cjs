@@ -162,7 +162,12 @@ app.whenReady().then(() => {
   ipcMain.handle('desktop:start-audio-apps', async (event, pids, includeMode = false) => {
     if (!isTrusted(event) || !Array.isArray(pids) || typeof includeMode !== 'boolean') return { started: [], failed: [] };
     stopAllAudioWorkers();
-    const safePids = [...new Set(pids.map(Number).filter(pid => Number.isInteger(pid) && pid > 0 && pid !== process.pid))].slice(0, includeMode ? 6 : 1);
+    const uniquePids = [...new Set(pids.map(Number).filter(pid => Number.isInteger(pid) && pid > 0 && pid !== process.pid))];
+    const workerLimit = includeMode ? 8 : 1;
+    if (uniquePids.length > workerLimit) {
+      return { started: [], failed: uniquePids.map(pid => ({ pid, error: 'Limite de ' + workerLimit + ' processos de áudio por transmissão.' })) };
+    }
+    const safePids = uniquePids;
     const results = await Promise.all(safePids.map(pid => new Promise(resolve => {
       let settled = false;
       let worker;

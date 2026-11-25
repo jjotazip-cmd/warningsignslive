@@ -1,6 +1,6 @@
 {
   "name": "warning-signs-desktop",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Warning Signs desktop app for Windows with per-application audio capture",
   "main": "main.cjs",
   "private": true,
