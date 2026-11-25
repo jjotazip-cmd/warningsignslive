@@ -135,12 +135,15 @@ button.stop:hover{background:#777777}
 #stage video{height:min(68vh,720px)}
 #pv{height:auto;max-height:52vh}
 #stage:fullscreen,#stage:-webkit-full-screen{
-  width:100vw;height:100vh;max-height:100vh;min-height:100vh;
-  padding:18px;background:#111214;border:0;border-radius:0;
-  grid-template-rows:auto 1fr;align-content:stretch
+  position:fixed!important;inset:0!important;z-index:99999!important;box-sizing:border-box!important;
+  display:grid!important;width:100vw!important;height:100vh!important;height:100dvh!important;
+  max-width:none!important;max-height:none!important;min-width:0!important;min-height:0!important;
+  padding:16px!important;background:#080808!important;border:0!important;border-radius:0!important;
+  grid-template-rows:auto minmax(0,1fr)!important;align-content:stretch!important;overflow:hidden!important
 }
 #stage:fullscreen video,#stage:-webkit-full-screen video{
-  width:100%;height:100%;max-height:none;min-height:0
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;
+  max-height:none!important;min-height:0!important;object-fit:contain!important;align-self:stretch
 }
 #side{position:sticky;top:90px;align-content:start;gap:12px;overflow:hidden}
 .side-img,footer{display:none!important}
@@ -364,11 +367,11 @@ body.home-mode{background:#f3f3f3;color:#111}
           <div class="desktop-audio-title">Áudio da transmissão (app Windows)</div>
           <div class="desktop-audio-modes">
             <label><input type="radio" name="desktop-audio-mode" value="system" checked> Áudio do sistema</label>
-            <label><input type="radio" name="desktop-audio-mode" value="exclude"> Áudio do sistema, exceto aplicativo marcado</label>
+            <label><input type="radio" name="desktop-audio-mode" value="exclude"> Compartilhar áudio, exceto os aplicativos marcados</label>
             <label><input type="radio" name="desktop-audio-mode" value="none"> Sem áudio</label>
           </div>
           <div id="desktop-audio-app-picker" style="display:none">
-            <div class="row"><button class="alt" id="desktop-audio-refresh" type="button">Atualizar lista</button><span class="muted">Escolha um aplicativo para deixar fora do áudio compartilhado.</span></div>
+            <div class="row"><button class="alt" id="desktop-audio-refresh" type="button">Atualizar lista</button><span class="muted">Marque os aplicativos cujo áudio não deve ser enviado; o áudio dos outros apps abertos será compartilhado.</span></div>
             <div class="desktop-audio-apps" id="desktop-audio-apps"></div>
           </div>
           <p class="muted" id="desktop-audio-status" role="status"></p>
@@ -413,12 +416,12 @@ async function refreshDesktopAudioApps(){
     if(!apps.length){$('#desktop-audio-status').textContent='Nenhuma janela de aplicativo encontrada. Abra o programa e atualize a lista.';return}
     apps.forEach(app=>{
       const label=mk('label','desktop-audio-app');
-      const check=document.createElement('input');check.type='radio';check.name='desktop-audio-exclude-app';check.value=String(app.pid);check.dataset.appName=app.name;
-      check.addEventListener('change',()=>{$('#desktop-audio-status').textContent='O áudio de “'+app.name+'” ficará fora da transmissão.'});
+      const check=document.createElement('input');check.type='checkbox';check.value=String(app.pid);check.dataset.appName=app.name;
+      check.addEventListener('change',updateDesktopAudioSelectionStatus);
       const name=document.createElement('span');name.textContent=app.name;
       label.append(check,name);list.append(label);
     });
-    $('#desktop-audio-status').textContent='Escolha um aplicativo para silenciar na transmissão. O restante do áudio do sistema será compartilhado.';
+    updateDesktopAudioSelectionStatus();
   }catch(e){$('#desktop-audio-status').textContent='Não foi possível listar os programas: '+errT(e)}
 }
 
@@ -427,11 +430,25 @@ function desktopAudioMode(){
 }
 
 function selectedDesktopAudioPids(){
-  return [...document.querySelectorAll('#desktop-audio-apps input[type="radio"]:checked')].map(x=>Number(x.value));
+  return [...document.querySelectorAll('#desktop-audio-apps input[type="checkbox"]:checked')].map(x=>Number(x.value));
+}
+
+function allDesktopAudioPids(){
+  return [...document.querySelectorAll('#desktop-audio-apps input[type="checkbox"]')].map(x=>Number(x.value));
+}
+
+function updateDesktopAudioSelectionStatus(){
+  const muted=new Set(selectedDesktopAudioPids());
+  const shared=allDesktopAudioPids().filter(pid=>!muted.has(pid)).length;
+  const limit=8;
+  $('#desktop-audio-status').textContent=shared>limit
+    ? `Há ${shared} aplicativos sem silenciar. Marque mais ${shared-limit} para compartilhar no máximo ${limit} por vez.`
+    : `${muted.size} silenciado(s); ${shared} aplicativo(s) será(ão) compartilhado(s).`;
 }
 
 async function startDesktopAppAudio(pids){
   if(!desktopBridge)throw new Error('O seletor de áudio só está disponível no app Windows.');
+  if(pids.length>8)throw new Error('Marque mais aplicativos para silenciar. O limite é de oito apps de áudio por transmissão.');
   const context=new AudioContext({sampleRate:48000});
   const destination=context.createMediaStreamDestination();
   const workletCode=[
@@ -479,11 +496,12 @@ async function startDesktopAppAudio(pids){
     await context.audioWorklet.addModule(moduleUrl);
     URL.revokeObjectURL(moduleUrl);
     await context.resume();
-    const result=await desktopBridge.startAudioApps(pids,false);
+    const result=await desktopBridge.startAudioApps(pids,true);
     if(!result||!result.started||!result.started.length)throw new Error('O Windows não conseguiu iniciar a captura dos programas marcados.');
-    if(result.failed&&result.failed.length)throw new Error('Não foi possível iniciar a captura de todos os programas marcados.');
     desktopAudioSession={context,destination,nodes,off,offError};
-    $('#desktop-audio-status').textContent='Compartilhando o áudio do sistema, exceto o aplicativo escolhido.';
+    $('#desktop-audio-status').textContent=result.failed&&result.failed.length
+      ? `Áudio ativo de ${result.started.length} app(s); ${result.failed.length} não pôde(puderam) ser capturado(s).`
+      : `Compartilhando o áudio de ${result.started.length} aplicativo(s), exceto os marcados.`;
     return destination.stream;
   }catch(e){
     off();offError();URL.revokeObjectURL(moduleUrl);
@@ -654,8 +672,11 @@ function back(){
 async function share(){
   if(!peer||peer.state!=='joined'){msg('A sala ainda não conectou (estado: '+String(peer&&peer.state||'desconhecido')+'). Aguarde ou use “Tentar reconectar”.');$('#retry-connect').style.display='inline-flex';return}
   const mode=desktopBridge?desktopAudioMode():'system';
-  const appPids=mode==='exclude'?selectedDesktopAudioPids():[];
-  if(mode==='exclude'&&!appPids.length){$('#desktop-audio-status').textContent='Escolha um aplicativo para deixar fora do áudio compartilhado.';return}
+  const mutedPids=mode==='exclude'?selectedDesktopAudioPids():[];
+  const openAppPids=mode==='exclude'?allDesktopAudioPids():[];
+  const appPids=openAppPids.filter(pid=>!mutedPids.includes(pid));
+  if(mode==='exclude'&&!openAppPids.length){$('#desktop-audio-status').textContent='Nenhum aplicativo aberto foi encontrado. Atualize a lista.';return}
+  if(mode==='exclude'&&appPids.length>8){updateDesktopAudioSelectionStatus();return}
   let displayStream;
   try{displayStream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:mode==='system'})}
   catch(e){
@@ -665,11 +686,11 @@ async function share(){
     catch(e2){msg('Não foi possível iniciar a transmissão: '+errT(e2));return}
   }
   let appAudioStream=null;
-  if(mode==='exclude'){
+  if(mode==='exclude'&&appPids.length){
     try{appAudioStream=await startDesktopAppAudio(appPids)}
     catch(e){displayStream.getTracks().forEach(track=>track.stop());msg('Não foi possível capturar o áudio dos programas: '+errT(e));return}
   }
-  if(mode==='none')myStream=new MediaStream(displayStream.getVideoTracks());
+  if(mode==='none'||(mode==='exclude'&&!appAudioStream))myStream=new MediaStream(displayStream.getVideoTracks());
   else if(appAudioStream)myStream=new MediaStream([...displayStream.getVideoTracks(),...appAudioStream.getAudioTracks()]);
   else myStream=displayStream;
   leaveWatch();
@@ -849,13 +870,26 @@ if(desktopBridge){
 }
 $('#convite').onclick=async()=>{const l=$('#convite').dataset.link;try{await navigator.clipboard.writeText(l);$('#convite').textContent='Copiado!'}catch(e){window.prompt('Copie o convite:',l)}setTimeout(()=>$('#convite').textContent='Copiar convite',1800)};
 $('#som').onclick=()=>{const v=$('#v');v.muted=!v.muted;$('#som').textContent=v.muted?'Ativar som':'Silenciar';v.play().catch(()=>{})};
+function updateFullscreenButton(){
+  const active=!!(document.fullscreenElement||document.webkitFullscreenElement||document.webkitIsFullScreen);
+  $('#full').textContent=active?'Sair da tela cheia':'Tela cheia';
+}
+document.addEventListener('fullscreenchange',updateFullscreenButton);
+document.addEventListener('webkitfullscreenchange',updateFullscreenButton);
 $('#full').onclick=async()=>{
   const stage=$('#stage'),v=$('#v');
   try{
-    if(document.fullscreenElement){await document.exitFullscreen();return}
+    if(document.fullscreenElement||document.webkitFullscreenElement||document.webkitIsFullScreen){
+      if(document.exitFullscreen)await document.exitFullscreen();
+      else if(document.webkitExitFullscreen)document.webkitExitFullscreen();
+      updateFullscreenButton();return;
+    }
     if(stage.requestFullscreen)await stage.requestFullscreen();
-    else if(stage.webkitRequestFullscreen)stage.webkitRequestFullscreen();
+    else if(stage.webkitRequestFullscreen)await stage.webkitRequestFullscreen();
+    else if(v.requestFullscreen)await v.requestFullscreen();
     else if(v.webkitEnterFullscreen)v.webkitEnterFullscreen();
+    else throw new Error('Tela cheia indisponível neste navegador.');
+    updateFullscreenButton();
   }catch(e){msg('Não foi possível abrir em tela cheia neste navegador.')}
 };
 
