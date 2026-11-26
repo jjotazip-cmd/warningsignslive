@@ -567,6 +567,11 @@ function allDesktopAudioPids(){
   return [...document.querySelectorAll('#desktop-audio-apps input[type="checkbox"]')].map(x=>Number(x.value));
 }
 
+function desktopAudioAppName(pid){
+  const check=[...document.querySelectorAll('#desktop-audio-apps input[type="checkbox"]')].find(x=>Number(x.value)===Number(pid));
+  return check?.parentElement?.querySelector('span')?.textContent||('PID '+pid);
+}
+
 function updateDesktopAudioSelectionStatus(){
   const muted=new Set(selectedDesktopAudioPids());
   const shared=allDesktopAudioPids().filter(pid=>!muted.has(pid)).length;
@@ -579,7 +584,7 @@ function updateDesktopAudioSelectionStatus(){
 async function startDesktopAppAudio(pids,context){
   if(!desktopBridge)throw new Error('O seletor de áudio só está disponível no app Windows.');
   if(pids.length>8)throw new Error('Marque mais aplicativos para silenciar. O limite é de oito apps de áudio por transmissão.');
-  context=context||new AudioContext({sampleRate:48000});
+  context=context||new AudioContext({latencyHint:'interactive'});
   const destination=context.createMediaStreamDestination();
   const workletCode=[
     'class WarningSignsPcmProcessor extends AudioWorkletProcessor {',
@@ -590,7 +595,9 @@ async function startDesktopAppAudio(pids,context){
   ].join('\n');
   const moduleUrl=URL.createObjectURL(new Blob([workletCode],{type:'text/javascript'}));
   const nodes=new Map();
+  let audioPackets=0;
   const off=desktopBridge.onAudioData(packet=>{
+    audioPackets++;
     try{
       let pcm=packet.pcm;
       if(pcm instanceof ArrayBuffer)pcm=new Uint8Array(pcm);
@@ -627,10 +634,20 @@ async function startDesktopAppAudio(pids,context){
     URL.revokeObjectURL(moduleUrl);
     await context.resume();
     const result=await desktopBridge.startAudioApps(pids,true);
-    if(!result||!result.started||!result.started.length)throw new Error('O Windows não conseguiu iniciar a captura dos programas marcados.');
-    desktopAudioSession={context,destination,nodes,off,offError};
-    $('#desktop-audio-status').textContent=result.failed&&result.failed.length
-      ? `Áudio ativo de ${result.started.length} app(s); ${result.failed.length} não pôde(puderam) ser capturado(s).`
+    const failed=result&&Array.isArray(result.failed)?result.failed:[];
+    if(!result||!result.started||!result.started.length){
+      const detail=failed.map(item=>`${desktopAudioAppName(item.pid)}: ${item.error}`).join(' | ');
+      throw new Error(detail||'O Windows não iniciou a captura. Atualize a lista de programas, confirme que o app está reproduzindo som e tente novamente.');
+    }
+    desktopAudioSession={context,destination,nodes,off,offError,healthTimer:null};
+    desktopAudioSession.healthTimer=setTimeout(()=>{
+      if(!desktopAudioSession||desktopAudioSession.context!==context)return;
+      $('#desktop-audio-status').textContent=audioPackets
+        ? 'Áudio dos aplicativos chegando. Se não ouvir, confira o volume do app e do dispositivo de saída.'
+        : 'Captura iniciada, mas sem áudio recebido. Reproduza som no app escolhido e confirme que o app não está silenciado no Windows.';
+    },4000);
+    $('#desktop-audio-status').textContent=failed.length
+      ? `Áudio ativo de ${result.started.length} app(s). Falha em: ${failed.map(item=>`${desktopAudioAppName(item.pid)} (${item.error})`).join('; ')}`
       : `Compartilhando o áudio de ${result.started.length} aplicativo(s), exceto os marcados.`;
     return destination.stream;
   }catch(e){
@@ -643,7 +660,7 @@ async function startDesktopAppAudio(pids,context){
 
 async function stopDesktopAppAudio(){
   const state=desktopAudioSession;desktopAudioSession=null;
-  if(state){state.off();state.offError();state.nodes.forEach(node=>{try{node.disconnect()}catch{}});await state.context.close().catch(()=>{})}
+  if(state){clearTimeout(state.healthTimer);state.off();state.offError();state.nodes.forEach(node=>{try{node.disconnect()}catch{}});await state.context.close().catch(()=>{})}
   if(desktopBridge)await desktopBridge.stopAudioApps().catch(()=>{});
 }
 const rnd=n=>Array.from(crypto.getRandomValues(new Uint8Array(n)),b=>"abcdefghjkmnpqrstuvwxyz23456789"[b%31]).join('');
@@ -851,7 +868,7 @@ async function share(){
   let preparedAudioContext=null;
   let preparedAudioResume=null;
   if(mode==='exclude'&&capturableAppPids.length){
-    try{preparedAudioContext=new AudioContext({sampleRate:48000});preparedAudioResume=preparedAudioContext.resume();preparedAudioResume.catch(()=>{})}
+    try{preparedAudioContext=new AudioContext({latencyHint:'interactive'});preparedAudioResume=preparedAudioContext.resume();preparedAudioResume.catch(()=>{})}
     catch(e){preparedAudioContext=null;$('#desktop-audio-status').textContent='Não foi possível preparar o áudio dos aplicativos: '+errT(e)}
   }
   let displayStream;
@@ -1074,28 +1091,41 @@ document.addEventListener('webkitfullscreenchange',updateFullscreenButton);
 if(desktopBridge&&desktopBridge.onFullscreenChange){
   desktopBridge.onFullscreenChange(active=>{document.body.classList.toggle('desktop-stage-fullscreen',active);updateFullscreenButton()});
 }
-$('#full').onclick=async()=>{
+let fullscreenBusy=false;
+async function setStageFullscreen(enabled){
   const stage=$('#stage'),v=$('#v');
+  if(fullscreenBusy)return;fullscreenBusy=true;
   try{
-    if(desktopBridge&&desktopBridge.setFullscreen){
-      const active=document.body.classList.contains('desktop-stage-fullscreen');
-      await desktopBridge.setFullscreen(!active);
-      document.body.classList.toggle('desktop-stage-fullscreen',!active);
-      updateFullscreenButton();return;
+    const browserFullscreen=!!(document.fullscreenElement||document.webkitFullscreenElement||document.webkitIsFullScreen);
+    if(desktopBridge&&desktopBridge.setFullscreen&&(enabled||!browserFullscreen)){
+      const actual=await desktopBridge.setFullscreen(enabled);
+      if(actual===enabled){document.body.classList.toggle('desktop-stage-fullscreen',actual);updateFullscreenButton();return}
+      // If Windows declines the native window switch, use Chromium's video-stage fullscreen.
     }
-    if(document.fullscreenElement||document.webkitFullscreenElement||document.webkitIsFullScreen){
+    if(enabled){
+      if(stage.requestFullscreen)await stage.requestFullscreen();
+      else if(stage.webkitRequestFullscreen)await stage.webkitRequestFullscreen();
+      else if(v.requestFullscreen)await v.requestFullscreen();
+      else if(v.webkitEnterFullscreen)v.webkitEnterFullscreen();
+      else throw new Error('Tela cheia indisponível.');
+    }else if(browserFullscreen){
       if(document.exitFullscreen)await document.exitFullscreen();
       else if(document.webkitExitFullscreen)document.webkitExitFullscreen();
-      updateFullscreenButton();return;
+      document.body.classList.remove('desktop-stage-fullscreen');
+    }else if(desktopBridge&&desktopBridge.setFullscreen){
+      await desktopBridge.setFullscreen(false);document.body.classList.remove('desktop-stage-fullscreen');
+    }else{
+      document.body.classList.remove('desktop-stage-fullscreen');
     }
-    if(stage.requestFullscreen)await stage.requestFullscreen();
-    else if(stage.webkitRequestFullscreen)await stage.webkitRequestFullscreen();
-    else if(v.requestFullscreen)await v.requestFullscreen();
-    else if(v.webkitEnterFullscreen)v.webkitEnterFullscreen();
-    else throw new Error('Tela cheia indisponível neste navegador.');
     updateFullscreenButton();
-  }catch(e){msg('Não foi possível abrir em tela cheia neste navegador.')}
-};
+  }catch(e){msg('Não foi possível abrir em tela cheia. Tente F11 ou maximize a janela do aplicativo.')}
+  finally{fullscreenBusy=false}
+}
+$('#full').onclick=()=>setStageFullscreen(!(document.body.classList.contains('desktop-stage-fullscreen')||document.fullscreenElement||document.webkitFullscreenElement||document.webkitIsFullScreen));
+document.addEventListener('keydown',e=>{
+  if(e.key==='F11'&&watching){e.preventDefault();setStageFullscreen(!(document.body.classList.contains('desktop-stage-fullscreen')||document.fullscreenElement||document.webkitFullscreenElement||document.webkitIsFullScreen))}
+  if(e.key==='Escape'&&document.body.classList.contains('desktop-stage-fullscreen'))setStageFullscreen(false);
+});
 
 $('#nome').onchange=()=>{nome();bcast()};
 
