@@ -17,7 +17,7 @@ process.parentPort.on('message', event => {
       const pcm = Uint8Array.from(data);
       process.parentPort.postMessage({ type: 'audio', pid, pcm, meta });
     });
-    if (!started) throw new Error('A captura de áudio não iniciou.');
+    if (!started) throw new Error('A captura nativa retornou “não iniciada” para o PID ' + pid + '. Confira se o aplicativo continua aberto e reproduzindo áudio; atualize a lista e tente de novo.');
     process.parentPort.postMessage({ type: 'started', pid });
   } catch (error) {
     const detail = error && error.message && error.message !== 'Error' ? error.message : error && error.stack ? error.stack : String(error);

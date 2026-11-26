@@ -185,8 +185,9 @@ app.whenReady().then(() => {
       try {
         worker = utilityProcess.fork(path.join(__dirname, 'audio-worker.cjs'), [], { serviceName: 'Warning Signs audio capture' });
         audioWorkers.set(pid, worker);
-        worker.on('message', event => {
-          const message = event.data || {};
+        worker.on('message', (event, payload) => {
+          // UtilityProcess emits the payload directly; event.data belongs to parentPort.
+          const message = payload || (event && event.data) || event || {};
           if (message.type === 'started') finish({ pid, ok: true });
           if (message.type === 'error') finish({ pid, error: message.error || 'Falha na captura nativa.' });
           if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -215,9 +216,24 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('desktop:set-fullscreen', (event, enabled) => {
     if (!isTrusted(event) || !mainWindow || mainWindow.isDestroyed()) return false;
-    const fullscreen = Boolean(enabled);
-    mainWindow.setFullScreen(fullscreen);
-    return fullscreen;
+    const target = Boolean(enabled);
+    if (mainWindow.isFullScreen() === target) return true;
+    return new Promise(resolve => {
+      const window = mainWindow;
+      const eventName = target ? 'enter-full-screen' : 'leave-full-screen';
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        window.removeListener(eventName, onChange);
+        resolve(!window.isDestroyed() && window.isFullScreen() === target);
+      };
+      const onChange = () => finish();
+      const timer = setTimeout(finish, 1800);
+      window.once(eventName, onChange);
+      try { window.setFullScreen(target); } catch { finish(); }
+    });
   });
   createWindow();
 });

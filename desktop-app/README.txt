@@ -1,5 +1,14 @@
 WARNING SIGNS DESKTOP — versão para Windows
 
+ATUALIZAÇÃO 1.0.6
+- Corrigido o recebimento das mensagens dos processos auxiliares do Electron; antes, a confirmação de início e os pacotes de áudio podiam ser descartados.
+- A tela cheia aguarda a confirmação real do Windows antes de atualizar a interface e continua com fallback pela tela cheia do vídeo.
+- Se o Windows não iniciar a captura de um app, o status exibe o programa e o erro recebido.
+
+ATUALIZAÇÃO 1.0.5
+- A tela cheia agora confirma o estado nativo do Windows e tem fallback para a tela cheia do vídeo; F11 alterna o modo e Esc sai dele.
+- O áudio selecionado exibe um aviso se a captura iniciar sem receber amostras, em vez de indicar sucesso sem som.
+
 Esta versão abre o site Warning Signs em uma janela de aplicativo e adiciona captura de áudio dos aplicativos escolhidos. A captura nativa usa a API WASAPI por processo. O site para celular e navegador continua disponível.
 
 GERAR O INSTALADOR PELO GITHUB
