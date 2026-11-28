@@ -1,8 +1,11 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('warningSignsDesktop', {
+  listSources: () => ipcRenderer.invoke('desktop:list-sources'),
+  selectSource: id => ipcRenderer.invoke('desktop:select-source', id),
+  captureSource: () => ipcRenderer.invoke('desktop:source'),
   listAudioApps: () => ipcRenderer.invoke('desktop:list-audio-apps'),
-  startAudioApps: (pids, includeMode = false) => ipcRenderer.invoke('desktop:start-audio-apps', pids, includeMode),
+  startAudioApps: (pids, includeMode = false, blocked = []) => ipcRenderer.invoke('desktop:start-audio-apps', pids, includeMode, blocked),
   stopAudioApps: () => ipcRenderer.invoke('desktop:stop-audio-apps'),
   setFullscreen: enabled => ipcRenderer.invoke('desktop:set-fullscreen', Boolean(enabled)),
   onFullscreenChange: callback => {

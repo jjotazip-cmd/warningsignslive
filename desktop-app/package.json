@@ -1,16 +1,15 @@
 {
   "name": "warning-signs-desktop",
-  "version": "1.0.6",
+  "version": "1.2.0",
   "description": "Warning Signs desktop app for Windows with per-application audio capture",
   "main": "main.cjs",
   "private": true,
   "scripts": {
-    "postinstall": "electron-builder install-app-deps",
     "start": "electron .",
-    "dist": "electron-builder --win nsis"
-  },
-  "dependencies": {
-    "electron-native-screenshare": "1.2.0"
+    "dist": "electron-builder --win nsis",
+    "build:audio": "cmake -S native -B native/build -A x64 && cmake --build native/build --config Release",
+    "predist": "npm run build:audio",
+    "prestart": "npm run build:audio"
   },
   "devDependencies": {
     "electron": "45.0.0",
@@ -20,10 +19,35 @@
     "appId": "live.warningsigns.desktop",
     "productName": "Warning Signs",
     "asar": true,
-    "directories": { "output": "dist" },
-    "files": ["main.cjs", "preload.cjs", "audio-worker.cjs", "picker.html", "picker-preload.cjs", "package.json", "node_modules/**/*"],
-    "asarUnpack": ["node_modules/electron-native-screenshare/**/*"],
-    "win": { "target": "nsis", "icon": "icon.ico", "artifactName": "Warning-Signs-Setup-${version}.${ext}" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true }
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "icon.ico",
+      "main.cjs",
+      "preload.cjs",
+      "picker.html",
+      "picker-preload.cjs",
+      "package.json",
+      "node_modules/**/*",
+      "audio-router.cjs"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "icon.ico",
+      "artifactName": "Warning-Signs-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "extraResources": [
+      {
+        "from": "native/build/Release/ws-audio.exe",
+        "to": "ws-audio.exe"
+      }
+    ]
   }
 }

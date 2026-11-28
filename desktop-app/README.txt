@@ -1,5 +1,14 @@
 WARNING SIGNS DESKTOP — versão para Windows
 
+ATUALIZAÇÃO 1.0.8
+- Atualizado o ícone do aplicativo e do instalador para a nova logo.
+- A interface da janela é carregada do site publicado no Netlify. Depois de publicar o index.html atualizado, o app mostra a nova interface ao abrir; é necessário gerar um instalador novo para distribuir o ícone atualizado.
+
+ATUALIZAÇÃO 1.0.7
+- O app Windows deixou de anexar o loopback global do Electron. O áudio é montado pela captura nativa por processo, excluindo o próprio Warning Signs para evitar retorno/eco.
+- No navegador, o compartilhamento pede o áudio da guia sem solicitar o mix geral do sistema.
+- Se a captura nativa falhar, a transmissão é interrompida com o motivo visível para evitar compartilhar áudio incorreto.
+
 ATUALIZAÇÃO 1.0.6
 - Corrigido o recebimento das mensagens dos processos auxiliares do Electron; antes, a confirmação de início e os pacotes de áudio podiam ser descartados.
 - A tela cheia aguarda a confirmação real do Windows antes de atualizar a interface e continua com fallback pela tela cheia do vídeo.
@@ -26,6 +35,6 @@ GERAÇÃO MANUAL NO WINDOWS
 
 O instalador é separado do site publicado no Netlify. A opção de seleção de áudio aparece somente dentro do app Windows. No site/PWA, o navegador continua oferecendo as opções normais de compartilhamento.
 
-Na sala, escolha “Compartilhar áudio, exceto os aplicativos marcados”, marque os aplicativos que não devem ser enviados e inicie a transmissão. O áudio dos demais aplicativos abertos, listados no seletor, será compartilhado. O limite é de oito processos por transmissão; se houver mais, os primeiros oito sem silenciar serão capturados. O player agora inclui controle de volume e a tela cheia do aplicativo usa o modo nativo do Windows. Se a captura seletiva falhar, a tela ainda será transmitida sem áudio para impedir que o som dos aplicativos marcados vaze para a sala; o motivo aparece no status do áudio.
+Na sala, escolha “Silenciar aplicativos específicos”, marque os programas que devem ficar fora do áudio e inicie a transmissão. Os demais aplicativos abertos, listados no seletor, serão compartilhados. O limite é de oito processos por transmissão. Se a captura seletiva falhar, a transmissão é interrompida com o motivo visível. No navegador, o compartilhamento solicita áudio da guia, sem pedir o mix geral do sistema. O player inclui controle de volume e a tela cheia usa o modo nativo do Windows.
 
-O pacote usa o módulo nativo electron-native-screenshare (licença MIT) para a captura por processo no Windows. O código nativo precisa ser compilado no Windows; o workflow do GitHub faz essa compilação em um runner Windows.
+O instalador compila o capturador próprio em native/ com CMake e o SDK do Windows. O capturador usa sessões WASAPI.

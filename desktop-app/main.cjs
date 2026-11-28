@@ -1,12 +1,16 @@
 const path = require('node:path');
-const { app, BrowserWindow, desktopCapturer, ipcMain, session, shell, utilityProcess } = require('electron');
-const nativeAudio = require('electron-native-screenshare');
+const { app, BrowserWindow, desktopCapturer, ipcMain, session, shell } = require('electron');
+const audio = require('./audio-router.cjs');
 
 const APP_URL = 'https://warningsignslive.netlify.app/';
 const APP_ORIGIN = new URL(APP_URL).origin;
 let mainWindow;
 let pickerWindow;
-const audioWorkers = new Map();
+let captureSource = null;
+let selectedSource = null;
+let offeredIds = new Set();
+const sourceTypes = ['screen', 'window'];
+
 
 function isTrusted(event) {
   try { return new URL(event.senderFrame.url).origin === APP_ORIGIN; }
@@ -22,6 +26,7 @@ function createWindow() {
     fullscreenable: true,
     backgroundColor: '#0a0a0a',
     title: 'Warning Signs',
+    icon: path.join(__dirname, 'icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -50,30 +55,7 @@ function createWindow() {
     return { action: 'deny' };
   });
   mainWindow.loadURL(APP_URL);
-  mainWindow.on('closed', () => { mainWindow = null; stopAllAudioWorkers(); });
-}
-
-function parseWindowHandle(sourceId) {
-  const match = /^window:(\d+):/.exec(sourceId || '');
-  return match ? Number(match[1]) : 0;
-}
-
-async function listWindows() {
-  const sources = await desktopCapturer.getSources({
-    types: ['window'],
-    thumbnailSize: { width: 0, height: 0 },
-    fetchWindowIcons: true
-  });
-  const byPid = new Map();
-  for (const source of sources) {
-    const handle = parseWindowHandle(source.id);
-    if (!handle) continue;
-    let pid = 0;
-    try { pid = nativeAudio.getPidFromWindowHandle(handle); } catch {}
-    if (!pid || pid === process.pid || byPid.has(pid)) continue;
-    byPid.set(pid, { pid, name: (source.name || 'Aplicativo').trim() });
-  }
-  return [...byPid.values()].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  mainWindow.on('closed', () => { mainWindow = null; audio.stop(); });
 }
 
 function chooseScreenSource() {
@@ -138,23 +120,11 @@ function chooseScreenSource() {
   });
 }
 
-function stopWorker(pid) {
-  const worker = audioWorkers.get(pid);
-  if (!worker) return;
-  audioWorkers.delete(pid);
-  try { worker.postMessage({ command: 'stop' }); } catch {}
-  setTimeout(() => { try { worker.kill(); } catch {} }, 500);
-}
-
-function stopAllAudioWorkers() {
-  for (const pid of [...audioWorkers.keys()]) stopWorker(pid);
-}
-
 app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     let origin = '';
     try { origin = new URL(details.requestingUrl || webContents.getURL()).origin; } catch {}
-    callback(origin === APP_ORIGIN && permission === 'display-capture');
+    callback(origin === APP_ORIGIN && (permission === 'display-capture' || permission === 'fullscreen' || (permission === 'media' && details.mediaTypes?.every(type => type === 'audio'))));
   });
 
   session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
@@ -162,56 +132,51 @@ app.whenReady().then(() => {
       callback(null);
       return;
     }
-    const video = await chooseScreenSource();
+    const choice = selectedSource;
+    selectedSource = null;
+    const video = choice && choice.frame === request.frame && choice.until > Date.now()
+      ? (await desktopCapturer.getSources({types: sourceTypes, thumbnailSize: {width:0,height:0}}).catch(()=>[])).find(item=>item.id===choice.id)
+      : await chooseScreenSource();
     if (!video) { callback(null); return; }
-    callback({ video, ...(request.audioRequested ? { audio: 'loopback' } : {}) });
+    // O loopback do Electron é o mix global do Windows. O áudio da sala e
+    // aplicativos excluídos voltariam para a transmissão. O áudio é injetado
+    // separadamente pelo capturador seletivo do app.
+    let pid = 0;
+    const windowSource = video.id.startsWith('window:');
+    if (windowSource) {
+      try { pid = await audio.windowPid(video.id); } catch {}
+    }
+    captureSource = { kind: windowSource ? 'window' : 'screen', pid };
+    callback({ video });
   });
 
-  ipcMain.handle('desktop:list-audio-apps', event => isTrusted(event) ? listWindows() : []);
-  ipcMain.handle('desktop:start-audio-apps', async (event, pids, includeMode = false) => {
-    if (!isTrusted(event) || !Array.isArray(pids) || typeof includeMode !== 'boolean') return { started: [], failed: [] };
-    stopAllAudioWorkers();
-    const uniquePids = [...new Set(pids.map(Number).filter(pid => Number.isInteger(pid) && pid > 0 && pid !== process.pid))];
-    const workerLimit = includeMode ? 8 : 1;
-    if (uniquePids.length > workerLimit) {
-      return { started: [], failed: uniquePids.map(pid => ({ pid, error: 'Limite de ' + workerLimit + ' processos de áudio por transmissão.' })) };
+  ipcMain.handle('desktop:list-sources', async event => {
+    if (!isTrusted(event) || event.senderFrame !== mainWindow?.webContents.mainFrame) return [];
+    selectedSource = null;
+    const entries = await desktopCapturer.getSources({types: sourceTypes, thumbnailSize:{width:240,height:140}});
+    offeredIds = new Set(entries.map(item => item.id));
+    return entries.map(item => ({id:item.id,name:item.name,image:item.thumbnail.isEmpty()?'':item.thumbnail.toDataURL()}));
+  });
+  ipcMain.handle('desktop:select-source', (event,id) => {
+    if (!isTrusted(event) || event.senderFrame !== mainWindow?.webContents.mainFrame || !offeredIds.has(id)) return false;
+    selectedSource = {id,frame:event.senderFrame,until:Date.now()+15000};
+    return true;
+  });
+  ipcMain.handle('desktop:source', event => isTrusted(event) ? captureSource : null);
+  ipcMain.handle('desktop:list-audio-apps', event => isTrusted(event) ? audio.sessions([process.pid]) : []);
+  ipcMain.handle('desktop:start-audio-apps', async (event, ids, include, blocked = []) => {
+    if (!isTrusted(event) || !Array.isArray(ids) || !Array.isArray(blocked) ||
+        typeof include !== 'boolean' || ![...ids,...blocked].every(pid => Number.isSafeInteger(pid) && pid >= 0)) {
+      throw new Error('Seleção de áudio inválida.');
     }
-    const safePids = uniquePids;
-    const results = await Promise.all(safePids.map(pid => new Promise(resolve => {
-      let settled = false;
-      let worker;
-      const finish = result => { if (settled) return; settled = true; clearTimeout(timer); resolve(result); };
-      const timer = setTimeout(() => { stopWorker(pid); finish({ pid, error: 'Tempo limite ao iniciar a captura.' }); }, 8000);
-      try {
-        worker = utilityProcess.fork(path.join(__dirname, 'audio-worker.cjs'), [], { serviceName: 'Warning Signs audio capture' });
-        audioWorkers.set(pid, worker);
-        worker.on('message', (event, payload) => {
-          // UtilityProcess emits the payload directly; event.data belongs to parentPort.
-          const message = payload || (event && event.data) || event || {};
-          if (message.type === 'started') finish({ pid, ok: true });
-          if (message.type === 'error') finish({ pid, error: message.error || 'Falha na captura nativa.' });
-          if (!mainWindow || mainWindow.isDestroyed()) return;
-          if (message.type === 'audio') mainWindow.webContents.send('desktop:audio-data', message);
-          if (message.type === 'error') mainWindow.webContents.send('desktop:audio-error', { pid, error: message.error });
-        });
-        worker.on('exit', code => {
-          if (audioWorkers.get(pid) === worker) audioWorkers.delete(pid);
-          if (!settled) finish({ pid, error: 'O capturador de áudio fechou (código '+code+').' });
-        });
-        worker.postMessage({ command: 'start', pid, includeMode });
-      } catch (error) {
-        if (worker) stopWorker(pid);
-        finish({ pid, error: String(error.message || error) });
-      }
-    })));
-    return {
-      started: results.filter(result => result.ok).map(result => result.pid),
-      failed: results.filter(result => !result.ok).map(result => ({ pid: result.pid, error: result.error }))
-    };
+    const sender=event.sender;
+    return audio.start(ids,include,blocked,(channel,data)=>{
+      if (!sender.isDestroyed()) sender.send(channel,data);
+    });
   });
   ipcMain.handle('desktop:stop-audio-apps', event => {
     if (!isTrusted(event)) return false;
-    stopAllAudioWorkers();
+    audio.stop();
     return true;
   });
   ipcMain.handle('desktop:set-fullscreen', (event, enabled) => {
@@ -239,4 +204,4 @@ app.whenReady().then(() => {
 });
 
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
-app.on('window-all-closed', () => { stopAllAudioWorkers(); if (process.platform !== 'darwin') app.quit(); });
+app.on('window-all-closed', () => { audio.stop(); if (process.platform !== 'darwin') app.quit(); });

@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.20)
+project(ws_audio LANGUAGES CXX)
+add_executable(ws-audio audio.cpp)
+target_compile_features(ws-audio PRIVATE cxx_std_17)
+target_compile_definitions(ws-audio PRIVATE UNICODE _UNICODE NOMINMAX)
+target_link_libraries(ws-audio PRIVATE ole32 mmdevapi uuid)
+set_target_properties(ws-audio PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
