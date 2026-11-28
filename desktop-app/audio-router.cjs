@@ -36,11 +36,15 @@ function startWorker(pid, mode, send) {
     const child = spawn(helper(), [mode, String(pid)], { windowsHide:true, stdio:['ignore','pipe','pipe'] });
     workers.set(pid,child);
     let detail = '', ready = false, tail = Buffer.alloc(0);
-    const timeout = setTimeout(() => child.kill(), 8000);
+    let finished = false;
+    const timeout = setTimeout(() => {
+      finish(new Error(detail.trim() || 'O capturador não confirmou a inicialização em 8 segundos.'));
+      child.kill();
+    }, 8000);
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', chunk => {
       detail = (detail + chunk).slice(-2048);
-      if (!ready && detail.includes('READY\n')) { ready = true; clearTimeout(timeout); resolve(); }
+      if (!ready && /(?:^|\n)READY\r?\n/.test(detail)) { ready = true; clearTimeout(timeout); resolve(); }
     });
     child.stdout.on('data', chunk => {
       if (workers.get(pid) !== child) return;
@@ -50,6 +54,8 @@ function startWorker(pid, mode, send) {
       if (end) send('desktop:audio-data',{pid,pcm:buffer.subarray(0,end),meta:{channels:2,bitsPerSample:16,isFloat:false,sampleRate:44100}});
     });
     const finish = error => {
+      if (finished) return;
+      finished = true;
       clearTimeout(timeout);
       if (workers.get(pid) === child) {
         workers.delete(pid);
@@ -58,7 +64,11 @@ function startWorker(pid, mode, send) {
       reject(error);
     };
     child.on('error',finish);
-    child.on('close',code => finish(new Error(detail.replace('READY','').trim() || 'Capturador encerrado (' + code + ').')));
+    child.on('close', (code, signal) => {
+      const diagnostic = detail.replace(/^READY\r?$/m, '').trim();
+      const status = code === null ? (signal || 'sem código de saída') : 'código ' + code;
+      finish(new Error(diagnostic || 'Capturador encerrado (' + status + ').'));
+    });
   });
 }
 async function start(ids, include, blocked, send) {
