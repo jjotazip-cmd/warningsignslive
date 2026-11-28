@@ -1,24 +1,25 @@
-WARNING SIGNS DESKTOP — versão para Windows
+WARNING SIGNS — conexão TURN no Netlify
 
-Esta versão abre o site Warning Signs em uma janela de aplicativo e adiciona captura de áudio dos aplicativos escolhidos. A captura nativa usa a API WASAPI por processo. O site para celular e navegador continua disponível.
+Este pacote contém index.html e uma Netlify Function para buscar credenciais temporárias do servidor TURN da Metered. A chave privada fica nas variáveis de ambiente do Netlify, não no HTML.
 
-GERAR O INSTALADOR PELO GITHUB
-1. Envie a pasta desktop-app e a pasta .github que acompanham este pacote para a raiz do repositório GitHub do site.
-2. Envie também o index.html atualizado para a raiz do mesmo repositório e faça o commit.
-3. Aguarde o Netlify concluir a publicação do site atualizado.
-4. No GitHub, abra Actions > Build Warning Signs for Windows > execução mais recente.
-5. Baixe o artefato warning-signs-windows-installer. Ele contém o instalador .exe.
+ANTES DE PUBLICAR
+1. No painel da Metered, copie o nome do app (a parte antes de .metered.live) e a API Key da conta.
+2. No Netlify, abra o projeto do site: Project configuration > Environment variables.
+3. Crie METERED_APP_NAME com o nome do app e METERED_API_KEY com a chave. Se houver escolha de escopo, inclua Functions.
+4. Publique o projeto com a pasta netlify/functions e o arquivo netlify.toml. Só substituir o index.html por upload manual não publica a função.
 
-GERAÇÃO MANUAL NO WINDOWS
-1. Abra a pasta desktop-app no Windows.
-2. Instale Node.js 22 e Visual Studio Build Tools com “Desenvolvimento para desktop com C++”.
-3. No terminal dentro desta pasta, execute npm install e depois npm run dist.
-4. O instalador aparecerá em desktop-app/dist/.
+O Netlify exige deploy por Git conectado ou pela Netlify CLI para publicar Functions. Depois de configurar as variáveis, faça um novo deploy.
 
-O instalador é separado do site publicado no Netlify. A opção de seleção de áudio aparece somente dentro do app Windows. No site/PWA, o navegador continua oferecendo as opções normais de compartilhamento.
+A função fica disponível em /.netlify/functions/turn-credentials. O site mantém conexão direta como fallback caso o serviço TURN esteja indisponível.
 
-O site estático do Netlify não precisa das dependências npm do Electron. Mantenha o package.json do instalador em desktop-app, não na raiz do repositório.
+Não coloque a API Key no HTML nem envie a chave em mensagens.
 
-Na sala, escolha “Áudio do sistema, exceto aplicativo marcado”, selecione um aplicativo e inicie a transmissão. O áudio do aplicativo escolhido fica fora da transmissão; o restante do áudio do sistema é compartilhado. Selecione um aplicativo por vez.
+APP WINDOWS — CAPTURA DE ÁUDIO POR PROGRAMA
+A pasta desktop-app contém o projeto do aplicativo Windows. A pasta .github/workflows inclui a automação que compila o instalador no Windows após o commit. Veja desktop-app/README.txt para as etapas de publicação e download do .exe.
 
-O pacote usa o módulo nativo electron-native-screenshare (licença MIT) para a captura por processo no Windows. O código nativo precisa ser compilado no Windows; o workflow do GitHub faz essa compilação em um runner Windows.
+
+CONTAS, PERFIL E GRUPOS
+A pasta netlify/functions inclui as funções de conta e sincronização. O package.json da raiz instala as dependências usadas por elas.
+No painel do Netlify, ative Identity, deixe o cadastro aberto e habilite cadastro sem confirmação em Identity > Emails > Confirmation template (autoconfirm). Depois publique por Git ou Netlify CLI.
+O cadastro do Warning Signs pede apenas nome de usuário e senha; o Identity usa um endereço técnico interno. Como não há e-mail no cadastro, não existe recuperação de senha por e-mail.
+Os grupos e o perfil são sincronizados entre dispositivos depois de entrar na conta.

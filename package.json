@@ -1,0 +1,9 @@
+{
+  "name": "warning-signs-web",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@netlify/blobs": "11.1.11",
+    "@netlify/identity": "2.0.1"
+  }
+}
